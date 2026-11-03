@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Productivity++</title>
+  <meta name="description" content="Tasks, calendar, Eisenhower matrix and habit tracker. Works offline.">
+  <meta name="theme-color" content="#f6f7fb" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#121318" media="(prefers-color-scheme: dark)">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Productivity">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="css/app.css">
+  <script type="module" src="js/app.js"></script>
+</head>
+<body>
+  <div id="app">
+    <aside id="sidebar"></aside>
+    <main id="main">
+      <header id="topbar">
+        <h1 id="view-title">Today</h1>
+        <div id="view-actions"></div>
+      </header>
+      <div id="view"></div>
+    </main>
+    <nav id="tabbar" aria-label="Main"></nav>
+    <button id="fab" aria-label="Add task"></button>
+  </div>
+  <div id="sheet-root"></div>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <noscript>This app needs JavaScript.</noscript>
+  <script>
+    if (location.protocol === 'file:') {
+      document.getElementById('view').innerHTML =
+        '<div class="card" style="margin-top:16px"><h3>Open this app through a web server</h3>' +
+        '<p>Browsers block apps opened directly from a file. Either open the GitHub Pages link, or run this in the project folder:</p>' +
+        '<pre style="background:var(--surface-2);padding:10px;border-radius:8px;overflow:auto">python3 -m http.server 8000</pre>' +
+        '<p>and then go to <a href="http://localhost:8000">http://localhost:8000</a>.</p></div>';
+    }
+  </script>
+</body>
+</html>
