@@ -34,6 +34,16 @@
   <div id="toast" role="status" aria-live="polite"></div>
   <noscript>This app needs JavaScript.</noscript>
   <script>
+    // If the app's code fails to start, show the reason instead of a blank screen
+    window.addEventListener('error', function (e) {
+      if (window.__appStarted || !e.message) return;
+      var v = document.getElementById('view');
+      if (v && !v.children.length) v.innerHTML = '<div class="card error-card"><h3>⚠ The app couldn\'t start</h3><p>Try a hard reload (Ctrl+Shift+R).</p><pre></pre><button class="btn primary" onclick="location.reload()">Reload</button></div>';
+      var pre = v && v.querySelector('pre');
+      if (pre) pre.textContent = e.message + (e.filename ? '\n' + e.filename + ':' + e.lineno : '');
+    }, true);
+  </script>
+  <script>
     if (location.protocol === 'file:') {
       document.getElementById('view').innerHTML =
         '<div class="card" style="margin-top:16px"><h3>Open this app through a web server</h3>' +

@@ -1,5 +1,5 @@
 /* Productivity++ service worker: offline cache, push reminders, notification clicks, Windows widgets. */
-const VERSION = 'v1.5.0';
+const VERSION = 'v1.6.1';
 const SHELL_CACHE = `ppp-shell-${VERSION}`;
 const CONFIG_CACHE = 'ppp-config';
 const SHELL = [
@@ -13,7 +13,8 @@ const SHELL = [
 const scoped = (p) => new URL(p, self.registration.scope).href;
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(SHELL_CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  // cache: 'reload' skips the browser's HTTP cache, so the offline copy is one consistent version
+  e.waitUntil(caches.open(SHELL_CACHE).then((c) => c.addAll(SHELL.map((u) => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (e) => {
@@ -38,12 +39,17 @@ self.addEventListener('fetch', (e) => {
     e.respondWith(fetch(req).catch(async () => (await caches.match(scoped('index.html'))) || (await caches.match(scoped('./')))));
     return;
   }
-  // Assets: stale-while-revalidate
+  // Assets: network first (always the files of one deploy), cached copy when offline.
+  // Serving cached-then-updating copies could mix old and new modules and break the app.
   e.respondWith((async () => {
     const cache = await caches.open(SHELL_CACHE);
-    const hit = await cache.match(req, { ignoreSearch: true });
-    const net = fetch(req).then((res) => { if (res.ok) cache.put(req, res.clone()); return res; }).catch(() => hit);
-    return hit || net;
+    try {
+      const res = await fetch(req, { cache: 'no-cache' });
+      if (res.ok) cache.put(req, res.clone());
+      return res;
+    } catch {
+      return (await cache.match(req, { ignoreSearch: true })) || Response.error();
+    }
   })());
 });
 

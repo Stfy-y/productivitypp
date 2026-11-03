@@ -11,7 +11,7 @@ const PX_MIN = HOUR_PX / 60;
 const MIN_FREE = 30; // smallest gap worth showing as "free"
 export const DEFAULT_DURATION = 30;
 
-export const toMin = (t) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+export const toMin = (t) => { const m = /^(\d{1,2}):(\d{2})/.exec(String(t ?? '')); return m ? Math.min(1440, +m[1] * 60 + +m[2]) : 0; };
 export const fromMin = (m) => `${pad(Math.floor(m / 60))}:${pad(m % 60)}`;
 export const fmtDur = (m) => (m >= 60 ? `${Math.floor(m / 60)}h${m % 60 ? ` ${m % 60}m` : ''}` : `${m}m`);
 const nowMin = () => { const d = new Date(); return d.getHours() * 60 + d.getMinutes(); };
@@ -97,13 +97,16 @@ function dayItems(d, tasksOnDay, opts = {}) {
   return { timed, allDay };
 }
 
-function block(it) {
+function verticalPlace(it) {
   const top = it.s * PX_MIN;
   const height = Math.max(18, (it.ve - it.s) * PX_MIN - 2);
   const left = `calc(${(it.col / it.cols) * 100}% + 2px)`;
   const width = `calc(${(100 * it.span) / it.cols}% - 4px)`;
-  const style = `top:${top}px;height:${height}px;left:${left};width:${width}`;
-  const short = height < 44; // not enough room for two lines: put the time next to the title
+  return { style: `top:${top}px;height:${height}px;left:${left};width:${width}`, short: height < 44 };
+}
+
+function block(it, place = verticalPlace) {
+  const { style, short } = place(it); // short = no room for two lines: put the time next to the title
   const range = `${fmtTime(fromMin(it.s))}${it.e - it.s >= 30 ? ' – ' + fmtTime(fromMin(Math.min(it.e, 1439))) : ''}`;
   const name = (o) => (o.kind === 'event' ? o.ev.title : o.t.title);
   const clash = it.overlap ? ` · ⚠ overlaps ${it.overlapsWith.map(name).join(', ')}` : '';
@@ -150,7 +153,7 @@ export function renderTimeGrid(start, n, map, opts = {}) {
       <div class="tb-off" style="top:0;height:${ws * PX_MIN}px"></div>
       <div class="tb-off" style="top:${we * PX_MIN}px;bottom:0"></div>
       ${c.free.map(([s, e]) => `<div class="tb-free" style="top:${s * PX_MIN}px;height:${(e - s) * PX_MIN}px"><span>Free · ${fmtDur(e - s)}</span></div>`).join('')}
-      ${c.timed.map(block).join('')}
+      ${c.timed.map((it) => block(it)).join('')}
       ${c.d === t ? `<div class="tb-now" style="top:${nowMin() * PX_MIN}px"></div>` : ''}
     </div>`).join('');
 
@@ -164,9 +167,67 @@ export function renderTimeGrid(start, n, map, opts = {}) {
   ${opts.hint === false ? '' : `<p class="hint tb-hint">Click an empty slot to add an event · drag tasks and your events to reschedule · drag the bottom edge to change the length.</p>`}`;
 }
 
+/* ---------- Horizontal layout: one row per day, time runs left → right ---------- */
+export const HOUR_W = 80;
+const PXX = HOUR_W / 60;
+const LANE = 38;
+
+function horizontalPlace(it) {
+  const left = it.s * PXX + 1;
+  const width = Math.max(24, (it.ve - it.s) * PXX - 2);
+  return { style: `left:${left}px;width:${width}px;top:${4 + it.col * LANE}px;height:${LANE - 4}px`, short: true };
+}
+
+export function renderTimeRows(start, n, map) {
+  const t = today();
+  const [ws, we] = dayBounds();
+  const days = [...Array(n)].map((_, i) => addDays(start, i));
+  const hours = [...Array(24)].map((_, h) => `<span style="left:${h * HOUR_W}px">${h ? esc(fmtTime(fromMin(h * 60)).replace(':00', '')) : ''}</span>`).join('');
+  const rows = days.map((d) => {
+    const { timed, allDay } = dayItems(d, map.get(d) || []);
+    const overlaps = layout(timed);
+    const free = freeGaps(timed, d);
+    const freeTotal = free.reduce((a, [s, e]) => a + (e - s), 0);
+    const lanes = Math.max(1, ...timed.map((i) => i.cols || 1));
+    const chips = allDay.map((x) => (x.kind === 'event'
+      ? `<div class="tb-chip ev" ${eventAttrs(x.ev)} ${x.ev.local ? `data-drag-id="ev:${esc(x.ev.id)}"` : ''} style="--ec:${esc(x.ev.color)}">${esc(x.ev.title)}</div>`
+      : `<div class="tb-chip q${quadrant(x.t)} ${x.t.done ? 'is-done' : ''}" data-drag-id="${x.t.id}" data-action="edit-task" data-id="${x.t.id}">${esc(x.t.title)}</div>`)).join('');
+    return `<div class="th-row ${d === t ? 'today' : ''} ${d < t ? 'past' : ''}">
+      <div class="th-day" data-drop="allday:${d}">
+        <div class="th-dayname"><span>${WD_SHORT[parseYmd(d).getDay()]}</span><b>${parseYmd(d).getDate()}</b>
+          <small>${d < t ? '' : freeTotal ? `<span class="free-sum">${fmtDur(freeTotal)} free</span>` : '<span class="busy-sum">Booked</span>'}${overlaps ? ` <span class="ov-sum">⚠ ${overlaps}</span>` : ''}</small></div>
+        ${chips ? `<div class="th-allday">${chips}</div>` : ''}
+      </div>
+      <div class="th-track" style="min-height:${lanes * LANE + 8}px" data-drop="slot:${d}" data-axis="x" data-action="tb-slot" data-date="${d}">
+        <div class="tb-off" style="left:0;width:${ws * PXX}px"></div>
+        <div class="tb-off" style="left:${we * PXX}px;right:0"></div>
+        ${free.map(([s, e]) => `<div class="tb-free" style="left:${s * PXX}px;width:${(e - s) * PXX}px"><span>Free · ${fmtDur(e - s)}</span></div>`).join('')}
+        ${timed.map((it) => block(it, horizontalPlace)).join('')}
+        ${d === t ? `<div class="tb-now" style="left:${nowMin() * PXX}px"></div>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+  return `<div class="th" style="--hourw:${HOUR_W}px">
+    <div class="th-head"><div class="th-corner"></div><div class="th-hours" style="width:${24 * HOUR_W}px">${hours}</div></div>
+    ${rows}
+  </div>
+  <p class="hint tb-hint">Click an empty spot to add an event · drag tasks and your events to reschedule · drag the right edge to change the length.</p>`;
+}
+
 let scrollMemo = null;
+let scrollMemoX = null;
 /** Restore the grid's scroll position, or start near the current time / day start. */
 export function afterTimeGrid(root) {
+  const h = root.querySelector('.th');
+  if (h) {
+    if (scrollMemoX == null) {
+      const [ws, we] = dayBounds();
+      const n = nowMin();
+      scrollMemoX = Math.max(0, (n > ws + 120 && n < we ? n - 120 : ws - 30) * PXX);
+    }
+    h.scrollLeft = scrollMemoX;
+    h.addEventListener('scroll', () => { scrollMemoX = h.scrollLeft; }, { passive: true });
+  }
   const sc = root.querySelector('.tb');
   if (!sc) return;
   if (scrollMemo == null) {
@@ -180,8 +241,10 @@ export function afterTimeGrid(root) {
 }
 
 export function updateNowLine() {
-  const el = document.querySelector('.tb-now');
-  if (el) el.style.top = `${nowMin() * PX_MIN}px`;
+  document.querySelectorAll('.tb-now').forEach((el) => {
+    if (el.closest('.th')) el.style.left = `${nowMin() * PXX}px`;
+    else el.style.top = `${nowMin() * PX_MIN}px`;
+  });
 }
 
 /** Drag the bottom edge of a task or event block to change its duration. */
@@ -197,16 +260,18 @@ export function enableResize(root) {
     const rec = isEvent ? getEvent(item.dataset.id) : getTask(item.dataset.id);
     if (!rec?.time) return;
     const fallback = isEvent ? 60 : DEFAULT_DURATION;
-    const startY = e.clientY;
-    const startH = item.offsetHeight;
+    const horizontal = !!item.closest('.th-track');
+    const pxMin = horizontal ? PXX : PX_MIN;
+    const startY = horizontal ? e.clientX : e.clientY;
+    const startH = horizontal ? item.offsetWidth : item.offsetHeight;
     const startMin = toMin(rec.time);
     let dur = Number(rec.duration) || fallback;
     item.classList.add('resizing');
     handle.setPointerCapture?.(e.pointerId);
     const move = (ev) => {
-      const h = Math.max(15 * PX_MIN, startH + (ev.clientY - startY));
-      dur = Math.max(15, Math.min(1440 - startMin, Math.round(h / PX_MIN / 15) * 15));
-      item.style.height = `${dur * PX_MIN - 2}px`;
+      const h = Math.max(15 * pxMin, startH + ((horizontal ? ev.clientX : ev.clientY) - startY));
+      dur = Math.max(15, Math.min(1440 - startMin, Math.round(h / pxMin / 15) * 15));
+      item.style[horizontal ? 'width' : 'height'] = `${dur * pxMin - 2}px`;
       const small = item.querySelector('small');
       if (small) small.textContent = `${fmtTime(rec.time)} – ${fmtTime(fromMin(Math.min(startMin + dur, 1439)))} · ${fmtDur(dur)}`;
     };

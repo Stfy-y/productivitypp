@@ -82,6 +82,19 @@ function onRoute() {
 
 /* ---------- Render ---------- */
 function render() {
+  try {
+    renderView();
+  } catch (err) {
+    console.error(err);
+    $('#view-title').textContent = NAV.find((n) => n.key === route.name)?.title || '';
+    $('#view').innerHTML = `<div class="card error-card"><h3>⚠ This page couldn't be shown</h3>
+      <p>Try a hard reload (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>R</kbd>). If it keeps happening, send this message:</p>
+      <pre>${(String(err?.message || err) + '\n' + String(err?.stack || '')).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])).slice(0, 1500)}</pre>
+      <div class="row-actions"><button class="btn primary" onclick="location.reload()">Reload</button><a class="btn" href="#/today">Go to Today</a></div></div>`;
+  }
+}
+
+function renderView() {
   const { name, arg } = route;
   let title = NAV.find((n) => n.key === name)?.title || '';
   let html = '';
@@ -146,7 +159,7 @@ async function handleAction(action, el, e) {
       break;
     }
     case 'tb-slot': {
-      const m = Math.floor(slotMinutesAt(el, e.clientY) / 30) * 30;
+      const m = Math.floor(slotMinutesAt(el, e.clientY, e.clientX) / 30) * 30;
       openQuickAdd({ date: el.dataset.date, time: fromMin(m), kind: 'event' });
       break;
     }
@@ -165,7 +178,7 @@ async function handleAction(action, el, e) {
     case 'habit-date': case 'habit-month-prev': case 'habit-month-next': case 'habit-archived':
       habitAction(action, el); render(); break;
 
-    case 'cal-mode': case 'cal-prev': case 'cal-next': case 'cal-today': case 'cal-select': case 'cal-day':
+    case 'cal-mode': case 'cal-prev': case 'cal-next': case 'cal-today': case 'cal-select': case 'cal-day': case 'cal-axis':
       calAction(action, el); render(); break;
 
     case 'matrix-done': toggleMatrixDone(); render(); break;
@@ -340,14 +353,14 @@ enableResize($('#view'));
 enableDrag($('#view'), (dragId, kind, value, info) => {
   if (dragId.startsWith('ev:')) {
     const id = dragId.slice(3);
-    if (kind === 'slot') updateEvent(id, { date: value, time: fromMin(slotMinutesAt(info.el, info.top)) });
+    if (kind === 'slot') updateEvent(id, { date: value, time: fromMin(slotMinutesAt(info.el, info.top, info.left)) });
     if (kind === 'allday') updateEvent(id, { date: value, time: null });
     if (kind === 'date' && value) updateEvent(id, { date: value });
     return; // events don't belong in the matrix or task lists
   }
   const taskId = dragId;
   if (kind === 'quad') updateTask(taskId, quadFlags(+value));
-  if (kind === 'slot') updateTask(taskId, { date: value, time: fromMin(slotMinutesAt(info.el, info.top)) });
+  if (kind === 'slot') updateTask(taskId, { date: value, time: fromMin(slotMinutesAt(info.el, info.top, info.left)) });
   if (kind === 'allday') updateTask(taskId, { date: value, time: null });
   if (kind === 'date') updateTask(taskId, { date: value || null, ...(value ? {} : { repeat: '', remind: null }) });
 });
@@ -417,3 +430,4 @@ startScheduler();
 refreshBadgeAndWidget();
 syncNow();
 if (settings.apiUrl) { writeSwConfig(); refreshGcalStatus().then(render); }
+window.__appStarted = true;

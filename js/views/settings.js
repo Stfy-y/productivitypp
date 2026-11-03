@@ -4,7 +4,7 @@ import { settings } from '../store.js';
 import { canNotify, canPush } from '../notify.js';
 import { calendars, loadCalendars } from '../gcal.js';
 
-export const VERSION = '1.5.0';
+export const VERSION = '1.6.1';
 export const install = { prompt: null };
 
 const ago = (ts) => {

@@ -7,9 +7,10 @@ export function suppressNextClick() {
   setTimeout(() => { suppressClick = false; }, 300);
 }
 /** For time-grid columns: minutes since midnight at a y position, snapped to 15 min. */
-export function slotMinutesAt(col, y) {
+export function slotMinutesAt(col, y, x) {
   const r = col.getBoundingClientRect();
-  const m = Math.round((((y - r.top) / r.height) * 1440) / 15) * 15;
+  const frac = col.dataset.axis === 'x' ? (x - r.left) / r.width : (y - r.top) / r.height;
+  const m = Math.round((frac * 1440) / 15) * 15;
   return Math.max(0, Math.min(1440 - 15, m));
 }
 document.addEventListener('click', (e) => {
@@ -33,7 +34,7 @@ export function enableDrag(root, onDrop) {
       const hit = document.elementFromPoint(ev.clientX, ev.clientY)?.closest('[data-drop]');
       if (hit !== over) { over?.classList.remove('drop-over'); over = hit; over?.classList.add('drop-over'); }
       if (over?.dataset.drop.startsWith('slot:')) {
-        const m = slotMinutesAt(over, ev.clientY - ghost._oy);
+        const m = slotMinutesAt(over, ev.clientY - ghost._oy, ev.clientX - ghost._ox);
         ghost.dataset.time = new Date(2000, 0, 1, Math.floor(m / 60), m % 60).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
       } else delete ghost.dataset.time;
     };
@@ -66,7 +67,7 @@ export function enableDrag(root, onDrop) {
         const target = over?.dataset.drop;
         if (target && ev.type === 'pointerup') {
           const i = target.indexOf(':');
-          onDrop(item.dataset.dragId, target.slice(0, i), target.slice(i + 1), { el: over, top: ev.clientY - ghost._oy });
+          onDrop(item.dataset.dragId, target.slice(0, i), target.slice(i + 1), { el: over, top: ev.clientY - ghost._oy, left: ev.clientX - ghost._ox });
         }
       }
       cleanup();

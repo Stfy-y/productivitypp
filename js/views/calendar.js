@@ -7,7 +7,7 @@ import { tasks, sortTasks, quadrant, QUADS, settings, habits, habitCount, isSche
 import { taskRow, eventRow, eventAttrs } from '../ui.js';
 import { ensureRange } from '../gcal.js';
 import { allEventsOn as eventsOn } from '../events.js';
-import { renderTimeGrid, toMin, fromMin, fmtDur, DEFAULT_DURATION } from './timegrid.js';
+import { renderTimeGrid, renderTimeRows, toMin, fromMin, fmtDur, DEFAULT_DURATION } from './timegrid.js';
 
 /** Week mode: 7 days from week start on wide screens, 3 days from the cursor on phones. */
 function span() {
@@ -15,14 +15,19 @@ function span() {
   return { n, start: n === 7 ? startOfWeek(state.cursor, settings.weekStart) : state.cursor };
 }
 
+const AXIS_V = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M15 4v16"/></svg>';
+const AXIS_H = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9.33h18M3 14.67h18"/></svg>';
+
 const state = {
   mode: localStorage.getItem('ppp-cal-mode') || 'month',
+  axis: localStorage.getItem('ppp-week-axis') || 'vertical', // week view: days as columns (vertical) or rows (horizontal)
   cursor: today(),
   selected: today(),
 };
 
 export function calAction(action, el) {
   if (action === 'cal-mode') { state.mode = el.dataset.mode; localStorage.setItem('ppp-cal-mode', state.mode); }
+  if (action === 'cal-axis') { state.axis = el.dataset.axis; localStorage.setItem('ppp-week-axis', state.axis); }
   const step = (dir) => {
     if (state.mode === 'month') return addMonths(startOfMonth(state.cursor), dir);
     if (state.mode === 'day') return addDays(state.cursor, dir);
@@ -76,6 +81,10 @@ export function renderCalendar() {
       <button class="icon-btn" data-action="cal-next" aria-label="Next">${icon('right')}</button>
     </div>
     <div class="cal-right">
+      ${state.mode === 'week' ? `<div class="seg small axis-toggle" title="Week layout">
+        <button data-action="cal-axis" data-axis="vertical" class="${state.axis !== 'horizontal' ? 'on' : ''}" aria-label="Days as columns" title="Days as columns">${AXIS_V}</button>
+        <button data-action="cal-axis" data-axis="horizontal" class="${state.axis === 'horizontal' ? 'on' : ''}" aria-label="Days as rows" title="Days as rows">${AXIS_H}</button>
+      </div>` : ''}
       <button class="btn small ghost" data-action="cal-today">Today</button>
       <div class="seg small">
         <button data-action="cal-mode" data-mode="month" class="${state.mode === 'month' ? 'on' : ''}">Month</button>
@@ -118,7 +127,7 @@ export function renderCalendar() {
   } else {
     const { n, start } = span();
     ensureRange(start, addDays(start, n - 1));
-    html += renderTimeGrid(start, n, map);
+    html += state.axis === 'horizontal' ? renderTimeRows(start, n, map) : renderTimeGrid(start, n, map);
   }
   return html;
 }
