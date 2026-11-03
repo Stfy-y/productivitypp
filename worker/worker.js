@@ -123,7 +123,10 @@ const CORS = {
   'Access-Control-Allow-Headers': 'Authorization, Content-Type',
   'Access-Control-Max-Age': '86400',
 };
-const json = (data, status = 200) => new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json', ...CORS } });
+// Non-ASCII is sent as \uXXXX escapes and the charset is explicit: some clients (e.g. iOS widgets)
+// would otherwise decode UTF-8 as Latin-1 and show garbage like "Â·".
+const asciiJson = (data) => JSON.stringify(data).replace(/[\u007f-\uffff]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
+const json = (data, status = 200) => new Response(asciiJson(data), { status, headers: { 'Content-Type': 'application/json; charset=utf-8', ...CORS } });
 const b64url = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 const enc = (s) => new TextEncoder().encode(s);
 
