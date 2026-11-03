@@ -1,11 +1,12 @@
 import { $, $$, esc, toast } from './util.js';
 import { icon } from './icons.js';
-import { fmtDue, fmtTime, fmtDay, today, WD_MIN } from './dates.js';
+import { fmtDue, fmtTime, fmtDay, today, WD_MIN, WD_SHORT, weekday, addDays, diffDays } from './dates.js';
 import { parseQuick } from './parse.js';
 import { gcalOn } from './gcal.js';
 import {
   settings, addTask, updateTask, deleteTask, getTask, toggleTask, quadrant, QUADS, quadFlags,
   snapshot, restore, addHabit, updateHabit, getHabit, addEvent, updateEvent, deleteEvent, getEvent,
+  isRepeating, deleteOccurrence, detachOccurrence,
 } from './store.js';
 
 /* ---------- Sheet / modal ---------- */
@@ -49,7 +50,7 @@ export function taskRow(t, { showDate = true } = {}) {
 /* ---------- Google Calendar event row ---------- */
 /** Attributes that make an element open the in-app event window. */
 export const eventAttrs = (e) => (e.local
-  ? `data-action="edit-event" data-id="${esc(e.id)}" role="button" tabindex="0"`
+  ? `data-action="edit-event" data-id="${esc(e.id)}" data-date="${esc(e.occ || '')}" role="button" tabindex="0"`
   : `data-action="open-event" data-cal="${esc(e.cal)}" data-id="${esc(e.id)}" role="button" tabindex="0"`);
 
 export function eventRow(e) {
@@ -175,8 +176,8 @@ export function openQuickAdd(preset = {}) {
         if (kind === 'task') {
           const quad = r.quad || preset.quad;
           if (quad) c.push(`<i class="dot q${quad}"></i>${QUADS[quad].hint}`);
-          if (r.repeat) c.push(`${icon('repeat')} ${r.repeat}`);
         }
+        if (r.repeat) c.push(`${icon('repeat')} ${esc(describeRepeat(repeatFromParse(r, date || today())))}`);
         chips.innerHTML = c.map((x) => `<span class="chip">${x}</span>`).join('');
       };
 
@@ -198,13 +199,14 @@ export function openQuickAdd(preset = {}) {
         const time = r.time || (r.date ? null : preset.time || null);
         if (kind === 'event') {
           const date = r.date || preset.date || today();
-          addEvent({ title: r.title, date, time, duration: r.duration || 60, color });
+          addEvent({ title: r.title, date, time, duration: r.duration || 60, color, repeat: r.repeat ? repeatFromParse(r, date) : null });
           toast(`Event added to ${fmtDay(date)}`);
         } else {
           const q = r.quad || preset.quad;
           addTask({
             title: r.title, date: r.date || preset.date || null, time, repeat: r.repeat,
             duration: r.duration || null, remind: time ? 0 : null, ...(q ? quadFlags(q) : {}),
+            ...(r.interval > 1 ? { repeatEvery: r.interval } : {}),
           });
           toast(`Added${r.date || preset.date ? ' to ' + fmtDay(r.date || preset.date) : ''}`);
         }
@@ -216,63 +218,173 @@ export function openQuickAdd(preset = {}) {
   });
 }
 
+/* ---------- Repeat rules for events ---------- */
+/** Quick-add result → event repeat rule. */
+export function repeatFromParse(r, date) {
+  if (!r.repeat) return null;
+  const interval = Math.max(1, r.interval || 1);
+  if (r.repeat === 'weekdays') return { freq: 'weekly', interval, days: [1, 2, 3, 4, 5] };
+  if (r.repeat === 'weekly') return { freq: 'weekly', interval, days: [weekday(date)] };
+  return { freq: r.repeat, interval };
+}
+
+const UNITS = { daily: ['day', 'days'], weekly: ['week', 'weeks'], monthly: ['month', 'months'], yearly: ['year', 'years'] };
+export function describeRepeat(rep) {
+  if (!rep?.freq) return 'Does not repeat';
+  const n = Math.max(1, rep.interval || 1);
+  const [one, many] = UNITS[rep.freq] || ['', ''];
+  let txt = n === 1 ? `Every ${one}` : `Every ${n} ${many}`;
+  if (rep.freq === 'weekly' && rep.days?.length) {
+    const d = [...rep.days].sort((x, y) => ((x + 6) % 7) - ((y + 6) % 7));
+    txt = d.join() === '1,2,3,4,5' && n === 1 ? 'Every weekday' : `${txt} on ${d.map((x) => WD_SHORT[x]).join(', ')}`;
+  }
+  if (rep.until) txt += ` until ${fmtDay(rep.until)}`;
+  return txt;
+}
+
+const REPEAT_PRESETS = [
+  ['none', 'Does not repeat'], ['daily', 'Every day'], ['weekdays', 'Every weekday (Mon–Fri)'],
+  ['weekly', 'Every week'], ['biweekly', 'Every 2 weeks'], ['monthly', 'Every month'], ['yearly', 'Every year'], ['custom', 'Custom…'],
+];
+function presetOf(rep) {
+  if (!rep?.freq) return 'none';
+  const n = rep.interval || 1;
+  const days = (rep.days || []).join();
+  if (rep.freq === 'daily' && n === 1) return 'daily';
+  if (rep.freq === 'weekly' && n === 1 && days === '1,2,3,4,5') return 'weekdays';
+  if (rep.freq === 'weekly' && (rep.days || []).length <= 1) return n === 1 ? 'weekly' : n === 2 ? 'biweekly' : 'custom';
+  if (rep.freq === 'monthly' && n === 1) return 'monthly';
+  if (rep.freq === 'yearly' && n === 1) return 'yearly';
+  return 'custom';
+}
+
 /* ---------- Event editor (no completion: events just happen) ---------- */
-export function openEventEditor(id) {
+/** `occ` is the occurrence date that was clicked (for repeating events). */
+export function openEventEditor(id, occ) {
   const ev = getEvent(id);
   if (!ev || ev.deleted) return;
+  const repeating = isRepeating(ev);
+  const shownDate = repeating && occ ? occ : ev.date;
+  const rep = ev.repeat || null;
+  const order = settings.weekStart === 1 ? [1, 2, 3, 4, 5, 6, 0] : [0, 1, 2, 3, 4, 5, 6];
+  const repDays = rep?.days?.length ? rep.days : [weekday(shownDate)];
   openSheet(`
     <form class="editor" autocomplete="off">
       <div class="editor-head">
         <span class="ev-swatch" style="background:${esc(ev.color)}"></span>
         <input name="title" class="title-input" value="${esc(ev.title)}" required aria-label="Title">
       </div>
+      ${repeating ? `<div class="repeat-note">${icon('repeat')} ${esc(describeRepeat(rep))} · you opened ${esc(new Date(shownDate + 'T12:00').toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }))}</div>` : ''}
       <div class="grid2">
-        <label>Date<input type="date" name="date" value="${ev.date || today()}" required></label>
+        <label>Date<input type="date" name="date" value="${shownDate}" required></label>
         <label>Start time<input type="time" name="time" value="${ev.time || ''}"></label>
         <label class="span2 inline-check"><input type="checkbox" name="allday" ${ev.time ? '' : 'checked'}> All day</label>
         <label>Duration<select name="duration">${opts(DURATIONS, String(ev.duration || 60))}</select></label>
         <label>Reminder<select name="remind">${opts(REMINDERS, ev.remind)}</select></label>
-        <label class="span2">Location<input name="location" value="${esc(ev.location)}" placeholder="Optional"></label>
+        <label class="span2">Repeat<select name="preset">${REPEAT_PRESETS.map(([k, l]) => `<option value="${k}" ${presetOf(rep) === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
       </div>
+      <div class="repeat-box" hidden>
+        <div class="repeat-line">Every <input type="number" name="interval" min="1" max="99" value="${rep?.interval || 1}">
+          <select name="freq">${[['daily', 'day(s)'], ['weekly', 'week(s)'], ['monthly', 'month(s)'], ['yearly', 'year(s)']].map(([k, l]) => `<option value="${k}" ${(rep?.freq || 'weekly') === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+        <div class="days repeat-days">${order.map((d) => `<label><input type="checkbox" name="rdays" value="${d}" ${repDays.includes(d) ? 'checked' : ''}><span>${WD_MIN[d]}</span></label>`).join('')}</div>
+        <label class="repeat-line">Ends <select name="ends"><option value="never" ${rep?.until ? '' : 'selected'}>Never</option><option value="on" ${rep?.until ? 'selected' : ''}>On date</option></select>
+          <input type="date" name="until" value="${rep?.until || ''}"></label>
+        <p class="small faint repeat-summary"></p>
+      </div>
+      <div class="grid2"><label class="span2">Location<input name="location" value="${esc(ev.location)}" placeholder="Optional"></label></div>
       <div class="field-label">Color</div>
       <div class="swatches">${COLORS.map((c) => `<label><input type="radio" name="color" value="${c}" ${c === ev.color ? 'checked' : ''}><span style="background:${c}"></span></label>`).join('')}</div>
       <textarea name="notes" rows="3" placeholder="Notes">${esc(ev.notes)}</textarea>
-      <div class="editor-foot">
-        <button type="button" class="btn danger ghost" data-x="delete">${icon('trash')} Delete</button>
+      <div class="editor-foot ${repeating ? 'wrap' : ''}">
+        ${repeating
+    ? `<button type="button" class="btn danger ghost" data-x="delete-one">${icon('trash')} This event</button>
+           <button type="button" class="btn danger ghost" data-x="delete-all">All events</button>`
+    : `<button type="button" class="btn danger ghost" data-x="delete">${icon('trash')} Delete</button>`}
         <span class="spacer"></span>
         <button type="button" class="btn ghost" data-x="cancel">Cancel</button>
-        <button type="submit" class="btn primary">Save</button>
+        ${repeating
+    ? `<button type="button" class="btn" data-x="save-one">Save this event</button><button type="submit" class="btn primary">Save all</button>`
+    : '<button type="submit" class="btn primary">Save</button>'}
       </div>
     </form>`, {
     onMount(el) {
       const f = $('form', el);
       let lastTime = ev.time || '09:00';
+      const readRepeat = () => {
+        const p = f.preset.value;
+        const d = f.date.value || shownDate;
+        if (p === 'none') return null;
+        let r;
+        if (p === 'custom') {
+          r = { freq: f.freq.value, interval: Math.max(1, Math.min(99, +f.interval.value || 1)) };
+          if (r.freq === 'weekly') {
+            const days = $$('input[name=rdays]:checked', f).map((c) => +c.value);
+            r.days = days.length ? days.sort() : [weekday(d)];
+          }
+        } else if (p === 'weekdays') r = { freq: 'weekly', interval: 1, days: [1, 2, 3, 4, 5] };
+        else if (p === 'weekly' || p === 'biweekly') r = { freq: 'weekly', interval: p === 'biweekly' ? 2 : 1, days: [weekday(d)] };
+        else r = { freq: p, interval: 1 };
+        if (f.ends.value === 'on' && f.until.value) r.until = f.until.value;
+        return r;
+      };
       const sync = () => {
         f.time.disabled = f.allday.checked;
         f.duration.disabled = f.allday.checked || !f.time.value;
+        const custom = f.preset.value === 'custom';
+        const none = f.preset.value === 'none';
+        $('.repeat-box', el).hidden = none;
+        $$('.repeat-line:first-child, .repeat-days', el).forEach((x) => { x.hidden = !custom; });
+        $('.repeat-days', el).hidden = !custom || f.freq.value !== 'weekly';
+        f.until.hidden = f.ends.value !== 'on';
+        $('.repeat-summary', el).textContent = none ? '' : describeRepeat(readRepeat());
       };
       f.allday.onchange = () => {
         if (f.allday.checked) { lastTime = f.time.value || lastTime; f.time.value = ''; } else if (!f.time.value) f.time.value = lastTime;
         sync();
       };
       f.time.oninput = () => { if (f.time.value) f.allday.checked = false; sync(); };
+      f.addEventListener('change', (e) => {
+        if (e.target.name === 'color') $('.ev-swatch', el).style.background = e.target.value;
+        if (e.target.name === 'ends' && f.ends.value === 'on' && !f.until.value) f.until.value = addDays(f.date.value || shownDate, 28);
+        sync();
+      });
+      f.addEventListener('input', sync);
       sync();
-      f.addEventListener('change', (e) => { if (e.target.name === 'color') $('.ev-swatch', el).style.background = e.target.value; });
-      f.onsubmit = (e) => {
-        e.preventDefault();
-        updateEvent(id, {
-          title: f.title.value.trim() || ev.title, date: f.date.value || ev.date, time: f.allday.checked ? null : (f.time.value || null),
-          duration: Number(f.duration.value) || 60, remind: f.remind.value !== '' ? Number(f.remind.value) : null,
-          location: f.location.value.trim(), color: f.color.value || ev.color, notes: f.notes.value,
-        });
+
+      const fields = () => ({
+        title: f.title.value.trim() || ev.title, time: f.allday.checked ? null : (f.time.value || null),
+        duration: Number(f.duration.value) || 60, remind: f.remind.value !== '' ? Number(f.remind.value) : null,
+        location: f.location.value.trim(), color: f.color.value || ev.color, notes: f.notes.value,
+      });
+      const saveAll = () => {
+        const newRepeat = readRepeat();
+        const newDate = f.date.value || shownDate;
+        if (repeating && newRepeat) {
+          // moving the clicked occurrence shifts the whole series by the same number of days
+          const delta = diffDays(shownDate, newDate);
+          updateEvent(id, { ...fields(), repeat: newRepeat, date: delta ? addDays(ev.date, delta) : ev.date });
+        } else {
+          updateEvent(id, { ...fields(), repeat: newRepeat, date: newDate, ...(newRepeat ? {} : { exdates: [] }) });
+        }
         closeSheet();
       };
+      f.onsubmit = (e) => { e.preventDefault(); saveAll(); };
       el.addEventListener('click', (e) => {
         const x = e.target.closest('[data-x]')?.dataset.x;
         if (x === 'cancel') closeSheet();
-        if (x === 'delete') {
+        if (x === 'save-one') {
+          detachOccurrence(id, shownDate, { ...fields(), date: f.date.value || shownDate });
+          closeSheet();
+          toast('Changed this event only');
+        }
+        if (x === 'delete' || x === 'delete-all') {
           deleteEvent(id); closeSheet();
-          toast('Event deleted', { action: 'Undo', onAction: () => updateEvent(id, { deleted: false }) });
+          toast(repeating ? 'All events deleted' : 'Event deleted', { action: 'Undo', onAction: () => updateEvent(id, { deleted: false }) });
+        }
+        if (x === 'delete-one') {
+          const before = [...(ev.exdates || [])];
+          deleteOccurrence(id, shownDate); closeSheet();
+          toast('This event deleted', { action: 'Undo', onAction: () => updateEvent(id, { exdates: before }) });
         }
       });
     },

@@ -31,6 +31,38 @@ export function mergeState(a, b) {
   };
 }
 
+/* ---------- Repeating events ---------- */
+// e.repeat = { freq: 'daily'|'weekly'|'monthly'|'yearly', interval: 1, days: [0-6] (weekly), until: 'YYYY-MM-DD' }
+// e.exdates = ['YYYY-MM-DD', ...] occurrences that were deleted or moved
+const dayNum = (s) => Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10)) / 864e5;
+const wdOf = (n) => (((n % 7) + 7 + 4) % 7); // day 0 (1970-01-01) was a Thursday
+const weekIdx = (n) => Math.floor((n - ((wdOf(n) + 6) % 7)) / 7); // Monday-based weeks
+
+export function occursOn(e, d) {
+  if (!e || e.deleted || !e.date || !d) return false;
+  const r = e.repeat;
+  if (!r || !r.freq) return e.date === d;
+  if (d < e.date || (r.until && d > r.until) || (e.exdates || []).includes(d)) return false;
+  const n = Math.max(1, Math.floor(Number(r.interval)) || 1);
+  const a = dayNum(e.date), b = dayNum(d);
+  switch (r.freq) {
+    case 'daily': return (b - a) % n === 0;
+    case 'weekly': {
+      const days = Array.isArray(r.days) && r.days.length ? r.days : [wdOf(a)];
+      return days.includes(wdOf(b)) && (weekIdx(b) - weekIdx(a)) % n === 0;
+    }
+    case 'monthly': {
+      if (d.slice(8) !== e.date.slice(8)) return false;
+      const months = (+d.slice(0, 4) * 12 + +d.slice(5, 7)) - (+e.date.slice(0, 4) * 12 + +e.date.slice(5, 7));
+      return months % n === 0;
+    }
+    case 'yearly': return d.slice(5) === e.date.slice(5) && (+d.slice(0, 4) - +e.date.slice(0, 4)) % n === 0;
+    default: return false;
+  }
+}
+
+const addDaysStr = (s, k) => new Date((dayNum(s) + k) * 864e5).toISOString().slice(0, 10);
+
 /** Shift a naive local 'YYYY-MM-DDTHH:MM' key by minutes. */
 export function shiftMinutes(key, mins) {
   const [d, hm] = key.split('T');
@@ -67,10 +99,15 @@ export function remindersAt(state, minuteKey, allDayTime = '09:00') {
   }
   for (const ev of state.events || []) {
     if (ev.deleted || !ev.date || ev.remind == null || ev.remind === '') continue;
-    const at = shiftMinutes(`${ev.date}T${ev.time || allDayTime}`, -Number(ev.remind));
-    if (at !== minuteKey) continue;
-    const when = ev.time ? `${ev.date === date ? 'Today' : ev.date} at ${ev.time}` : `${ev.date === date ? 'Today' : ev.date} (all day)`;
-    out.push({ tag: `e-${ev.id}-${ev.date}`, title: ev.title, body: [when, ev.location].filter(Boolean).join(' · '), url: './#/calendar', kind: 'event', id: ev.id });
+    // the occurrence can be today or up to 2 days ahead (reminders go up to 1 day early)
+    for (let k = 0; k <= 2; k++) {
+      const occ = addDaysStr(date, k);
+      if (!occursOn(ev, occ)) continue;
+      const at = shiftMinutes(`${occ}T${ev.time || allDayTime}`, -Number(ev.remind));
+      if (at !== minuteKey) continue;
+      const when = ev.time ? `${occ === date ? 'Today' : occ} at ${ev.time}` : `${occ === date ? 'Today' : occ} (all day)`;
+      out.push({ tag: `e-${ev.id}-${occ}`, title: ev.title, body: [when, ev.location].filter(Boolean).join(' · '), url: './#/calendar', kind: 'event', id: ev.id });
+    }
   }
   const wd = new Date(date + 'T12:00:00Z').getUTCDay();
   for (const h of state.habits || []) {

@@ -112,7 +112,7 @@ export function renderCalendar() {
       const evs = eventsOn(d);
       const cls = [d.slice(0, 7) !== month && 'out', d === t && 'today', d === state.selected && 'sel'].filter(Boolean).join(' ');
       const pills = [
-        ...evs.map((e) => `<div class="pill ev" ${eventAttrs(e)} ${e.local ? `data-drag-id="ev:${esc(e.id)}"` : ''} style="--ec:${esc(e.color)}">${e.time ? `<b>${esc(fmtTime(e.time))}</b> ` : ''}${esc(e.title)}</div>`),
+        ...evs.map((e) => `<div class="pill ev" ${eventAttrs(e)} ${e.local ? `data-drag-id="ev:${esc(e.id)}@${esc(e.occ)}"` : ''} style="--ec:${esc(e.color)}">${e.time ? `<b>${esc(fmtTime(e.time))}</b> ` : ''}${e.repeating ? '↻ ' : ''}${esc(e.title)}</div>`),
         ...list.map((x) => `<div class="pill q${quadrant(x)} ${x.done ? 'is-done' : ''}" data-drag-id="${x.id}">${x.time ? `<b>${esc(fmtTime(x.time))}</b> ` : ''}${esc(x.title)}</div>`),
       ];
       html += `<div class="day ${cls}" data-action="cal-select" data-date="${d}" data-drop="date:${d}">
@@ -163,7 +163,7 @@ function renderAgendaDay(map) {
     if (e.allDay) { allDay.push(e); continue; }
     const s = e.time ? toMin(e.time) : 0;
     const en = e.endTime ? toMin(e.endTime) : 1440;
-    items.push({ kind: 'event', title: e.title, s, e: Math.max(en, s), color: e.color, sub: [e.calName, e.location].filter(Boolean).join(' · ') });
+    items.push({ kind: 'event', title: (e.repeating ? '↻ ' : '') + e.title, s, e: Math.max(en, s), color: e.color, sub: [e.calName, e.location].filter(Boolean).join(' · ') });
   }
   for (const k of map.get(d) || []) {
     if (!k.time) continue;

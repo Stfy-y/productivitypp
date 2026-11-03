@@ -1,0 +1,8 @@
+{
+  "uuid": "productivitypp@stfy-y.github.io",
+  "name": "Productivity++",
+  "description": "Today's tasks, events and habits from Productivity++ in the top bar.",
+  "shell-version": ["45", "46", "47", "48", "49", "50"],
+  "url": "https://github.com/Stfy-y/productivitypp",
+  "version": 1
+}

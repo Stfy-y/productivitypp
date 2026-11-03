@@ -383,7 +383,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); box-sha
 }
 .sheet-grip { width: 40px; height: 5px; border-radius: 99px; background: var(--line); margin: 0 auto 12px; }
 @media (min-width: 700px) {
-  .sheet { left: 50%; top: 12vh; bottom: auto; width: min(560px, 92vw); transform: translateX(-50%); border-radius: 18px; padding: 20px; animation: pop .18s ease-out; }
+  .sheet { left: 50%; top: max(24px, 8vh); bottom: auto; max-height: calc(100dvh - max(24px, 8vh) - 24px); width: min(560px, 92vw); transform: translateX(-50%); border-radius: 18px; padding: 20px; animation: pop .18s ease-out; }
   .sheet-grip { display: none; }
 }
 @keyframes fade { from { opacity: 0; } }
@@ -692,3 +692,19 @@ kbd {
 @media (max-width: 699px) { .cal-right { flex-wrap: wrap; } }
 .error-card { border-left: 4px solid var(--danger); }
 .error-card pre { white-space: pre-wrap; font-size: 12px; background: var(--surface-2); padding: 10px; border-radius: 8px; max-height: 240px; overflow: auto; }
+
+/* ---------- Repeating events ---------- */
+.repeat-note { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); background: var(--surface-2); border-radius: 10px; padding: 8px 12px; }
+.repeat-note svg { width: 15px; height: 15px; }
+.repeat-box { display: grid; gap: 10px; padding: 12px; border-radius: 12px; border: 1px dashed var(--line); }
+.repeat-box[hidden], .repeat-box [hidden] { display: none !important; }
+.repeat-line { display: flex !important; align-items: center; gap: 8px; font-size: 14px !important; color: var(--text) !important; flex-wrap: wrap; }
+.repeat-line input[type=number] { width: 64px; }
+.repeat-days span { width: 34px; height: 34px; }
+.repeat-summary { margin: 0; }
+.tb-item .rep { opacity: .75; font-weight: 700; }
+.editor { min-width: 0; }
+.editor > * { min-width: 0; }
+.editor-foot.wrap { flex-wrap: wrap; row-gap: 8px; }
+.editor-foot.wrap .spacer { flex-basis: 100%; height: 0; }
+@media (min-width: 700px) { .editor-foot.wrap .spacer { flex-basis: auto; flex: 1; } .editor-foot.wrap { flex-wrap: wrap; } }

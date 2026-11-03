@@ -2,7 +2,7 @@ import { $, $$, toast } from './util.js';
 import { icon } from './icons.js';
 import { today } from './dates.js';
 import {
-  db, settings, saveSettings, subscribe, updateTask, updateEvent, quadFlags, getHabit, updateHabit, cycleHabit,
+  db, settings, saveSettings, subscribe, updateTask, updateEvent, getEvent, detachOccurrence, quadFlags, getHabit, updateHabit, cycleHabit,
   clearCompleted, replaceAll,
 } from './store.js';
 import { openQuickAdd, openTaskEditor, openHabitEditor, openEventSheet, openEventEditor, doToggle, confirmDialog, closeSheet } from './ui.js';
@@ -149,7 +149,7 @@ async function handleAction(action, el, e) {
     case 'toggle-task': doToggle(id); break;
     case 'edit-task': openTaskEditor(id); break;
     case 'quick-add': openQuickAdd(quickAddPreset(el)); break;
-    case 'edit-event': openEventEditor(id); break;
+    case 'edit-event': openEventEditor(id, el.dataset.date || null); break;
     case 'shortcut-record': startRecording(el.dataset.which); break;
     case 'shortcut-reset':
       saveSettings({ shortcuts: { task: 'N', event: 'E' } }); toast('Shortcuts reset'); break;
@@ -352,11 +352,19 @@ document.addEventListener('keydown', (e) => {
 enableResize($('#view'));
 enableDrag($('#view'), (dragId, kind, value, info) => {
   if (dragId.startsWith('ev:')) {
-    const id = dragId.slice(3);
-    if (kind === 'slot') updateEvent(id, { date: value, time: fromMin(slotMinutesAt(info.el, info.top, info.left)) });
-    if (kind === 'allday') updateEvent(id, { date: value, time: null });
-    if (kind === 'date' && value) updateEvent(id, { date: value });
-    return; // events don't belong in the matrix or task lists
+    const [id, occ] = dragId.slice(3).split('@');
+    let patch = null;
+    if (kind === 'slot') patch = { date: value, time: fromMin(slotMinutesAt(info.el, info.top, info.left)) };
+    if (kind === 'allday') patch = { date: value, time: null };
+    if (kind === 'date' && value) patch = { date: value };
+    if (!patch) return; // events don't belong in the matrix or task lists
+    const ev = getEvent(id);
+    if (ev?.repeat?.freq && occ) {
+      // dragging one occurrence moves only that occurrence (like Google Calendar)
+      detachOccurrence(id, occ, patch);
+      toast('Moved this event only');
+    } else updateEvent(id, patch);
+    return;
   }
   const taskId = dragId;
   if (kind === 'quad') updateTask(taskId, quadFlags(+value));

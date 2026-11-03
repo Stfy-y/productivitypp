@@ -99,7 +99,7 @@ export function toggleTask(id) {
   const now = Date.now();
   if (!t.done && t.repeat && t.date) {
     db.tasks.push({ ...t, id: uid(), done: true, doneAt: now, repeat: '', remind: null, gcal: null, createdAt: now, updatedAt: now, repeatOf: t.id });
-    Object.assign(t, { date: nextOccurrence(t.date, t.repeat), updatedAt: now });
+    Object.assign(t, { date: nextOccurrence(t.date, t.repeat, t.repeatEvery || 1), updatedAt: now });
     changed();
     return 'rolled';
   }
@@ -140,6 +140,23 @@ export function updateEvent(id, patch) {
 }
 
 export const deleteEvent = (id) => updateEvent(id, { deleted: true });
+export const isRepeating = (e) => !!e?.repeat?.freq;
+
+/** Skip one occurrence of a repeating event. */
+export function deleteOccurrence(id, date) {
+  const e = getEvent(id);
+  if (!e) return;
+  updateEvent(id, { exdates: [...new Set([...(e.exdates || []), date])] });
+}
+
+/** Change just one occurrence: it becomes its own event, and the series skips that date. */
+export function detachOccurrence(id, date, patch = {}) {
+  const e = getEvent(id);
+  if (!e) return null;
+  const { repeat, exdates, id: _id, createdAt, updatedAt, ...rest } = e;
+  deleteOccurrence(id, date);
+  return addEvent({ ...rest, date, ...patch, repeat: null, exdates: [], seriesId: id });
+}
 
 /* ---------- Habits ---------- */
 export const habits = () => db.habits.filter((h) => !h.deleted);

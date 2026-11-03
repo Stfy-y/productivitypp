@@ -4,7 +4,7 @@ import { settings } from '../store.js';
 import { canNotify, canPush } from '../notify.js';
 import { calendars, loadCalendars } from '../gcal.js';
 
-export const VERSION = '1.6.1';
+export const VERSION = '1.8.0';
 export const install = { prompt: null };
 
 const ago = (ts) => {
@@ -54,6 +54,9 @@ export function renderSettings() {
   let installBlock;
   if (isStandalone()) installBlock = `<p class="ok">✓ Running as an installed app.</p>`;
   else if (install.prompt) installBlock = `<p>Install for a full-screen app with its own icon.</p><button class="btn primary" data-action="install">${icon('download')} Install app</button>`;
+  else if (/firefox|zen/i.test(navigator.userAgent) && !/android/i.test(navigator.userAgent)) installBlock = `<p>Firefox-based browsers like <b>Zen</b> can't install web apps on Linux yet, but everything else works in a tab (offline mode, notifications, sync).</p>
+    <ul class="plain"><li><b>Zen:</b> right-click the tab → <b>Add to Essentials</b> (or pin it), so the app is always one click away.</li>
+    <li><b>Want a separate app window with its own icon?</b> Open this page in Chrome, Chromium, Edge or Brave and choose <b>Install app</b>.</li></ul>`;
   else if (isIOS()) installBlock = `<p>On iPhone/iPad: open this page in <b>Safari</b>, tap <b>Share</b> → <b>Add to Home Screen</b>. Notifications on iOS only work from the installed app.</p>`;
   else installBlock = `<p>Use your browser menu → <b>Install app</b> / <b>Add to Home screen</b>.</p>`;
 
@@ -110,6 +113,7 @@ export function renderSettings() {
       <li><b>Android:</b> long-press the app icon for shortcuts (Add task, Add event, Today, Matrix, Habits), and drag any of them onto your home screen.</li>
       <li><b>iPhone:</b> install the free <i>Scriptable</i> app and use <a href="extras/scriptable-widget.js" target="_blank">this widget script</a> (needs sync).</li>
       <li><b>Windows 11:</b> install the app with Edge; it shows up in the Widgets board.</li>
+      <li><b>Linux (GNOME, e.g. Ubuntu):</b> a top-bar widget with today's schedule, tasks and habits. Run <code>linux-widget/install.sh</code> from the project folder and paste the URL below (<a href="https://github.com/Stfy-y/productivitypp/tree/master/linux-widget" target="_blank" rel="noopener">guide</a>).</li>
     </ul>
     ${connected ? `<label>Your widget data URL (keep private)<div class="copy"><input readonly value="${esc(widgetUrl)}"><button class="btn small" data-action="copy" data-value="${esc(widgetUrl)}">Copy</button></div></label>` : '<p class="small faint">Connect sync to get a widget data URL.</p>'}
   </section>

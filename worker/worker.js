@@ -40,6 +40,38 @@ function mergeItems(a = [], b = [], withLog = false) {
   const cutoff = Date.now() - TOMBSTONE_TTL;
   return [...map.values()].filter((i) => !(i.deleted && (i.updatedAt || 0) < cutoff));
 }
+/* ---------- Repeating events ---------- */
+// e.repeat = { freq: 'daily'|'weekly'|'monthly'|'yearly', interval: 1, days: [0-6] (weekly), until: 'YYYY-MM-DD' }
+// e.exdates = ['YYYY-MM-DD', ...] occurrences that were deleted or moved
+const dayNum = (s) => Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10)) / 864e5;
+const wdOf = (n) => (((n % 7) + 7 + 4) % 7); // day 0 (1970-01-01) was a Thursday
+const weekIdx = (n) => Math.floor((n - ((wdOf(n) + 6) % 7)) / 7); // Monday-based weeks
+
+function occursOn(e, d) {
+  if (!e || e.deleted || !e.date || !d) return false;
+  const r = e.repeat;
+  if (!r || !r.freq) return e.date === d;
+  if (d < e.date || (r.until && d > r.until) || (e.exdates || []).includes(d)) return false;
+  const n = Math.max(1, Math.floor(Number(r.interval)) || 1);
+  const a = dayNum(e.date), b = dayNum(d);
+  switch (r.freq) {
+    case 'daily': return (b - a) % n === 0;
+    case 'weekly': {
+      const days = Array.isArray(r.days) && r.days.length ? r.days : [wdOf(a)];
+      return days.includes(wdOf(b)) && (weekIdx(b) - weekIdx(a)) % n === 0;
+    }
+    case 'monthly': {
+      if (d.slice(8) !== e.date.slice(8)) return false;
+      const months = (+d.slice(0, 4) * 12 + +d.slice(5, 7)) - (+e.date.slice(0, 4) * 12 + +e.date.slice(5, 7));
+      return months % n === 0;
+    }
+    case 'yearly': return d.slice(5) === e.date.slice(5) && (+d.slice(0, 4) - +e.date.slice(0, 4)) % n === 0;
+    default: return false;
+  }
+}
+
+const addDaysStr = (s, k) => new Date((dayNum(s) + k) * 864e5).toISOString().slice(0, 10);
+
 function shiftMinutes(key, mins) {
   const [d, hm] = key.split('T');
   const [y, m, dd] = d.split('-').map(Number);
@@ -64,10 +96,15 @@ function remindersAt(state, minuteKey, allDayTime = '09:00') {
   }
   for (const ev of state.events || []) {
     if (ev.deleted || !ev.date || ev.remind == null || ev.remind === '') continue;
-    const at = shiftMinutes(`${ev.date}T${ev.time || allDayTime}`, -Number(ev.remind));
-    if (at !== minuteKey) continue;
-    const when = ev.time ? `${ev.date === date ? 'Today' : ev.date} at ${ev.time}` : `${ev.date === date ? 'Today' : ev.date} (all day)`;
-    out.push({ tag: `e-${ev.id}-${ev.date}`, title: ev.title, body: [when, ev.location].filter(Boolean).join(' · '), url: './#/calendar', kind: 'event', id: ev.id });
+    // the occurrence can be today or up to 2 days ahead (reminders go up to 1 day early)
+    for (let k = 0; k <= 2; k++) {
+      const occ = addDaysStr(date, k);
+      if (!occursOn(ev, occ)) continue;
+      const at = shiftMinutes(`${occ}T${ev.time || allDayTime}`, -Number(ev.remind));
+      if (at !== minuteKey) continue;
+      const when = ev.time ? `${occ === date ? 'Today' : occ} at ${ev.time}` : `${occ === date ? 'Today' : occ} (all day)`;
+      out.push({ tag: `e-${ev.id}-${occ}`, title: ev.title, body: [when, ev.location].filter(Boolean).join(' · '), url: './#/calendar', kind: 'event', id: ev.id });
+    }
   }
   const wd = new Date(date + 'T12:00:00Z').getUTCDay();
   for (const h of state.habits || []) {
@@ -158,11 +195,45 @@ function widgetData(state) {
   const tasks = (state.tasks || [])
     .filter((t) => !t.deleted && !t.done && t.date && t.date <= today)
     .sort((a, b) => q(a) - q(b) || (a.time || '99').localeCompare(b.time || '99'))
-    .map((t) => ({ title: t.title, time: t.time, overdue: t.date < today, quadrant: q(t) }));
+    .map((t) => ({ title: t.title, time: t.time, duration: Number(t.duration) || 30, overdue: t.date < today, quadrant: q(t) }));
   const habits = (state.habits || [])
     .filter((h) => !h.deleted && !h.archived && (!h.days?.length || h.days.includes(wd)))
     .map((h) => ({ name: h.name, icon: h.icon, count: h.log?.[today]?.c || 0, goal: h.goal || 1, done: (h.log?.[today]?.c || 0) >= (h.goal || 1) }));
-  return { date: today, tasks, habits };
+  // Your own events for today (Google events are added in widgetWithGoogle)
+  const toMin = (t) => { const m = /^(\d{1,2}):(\d{2})/.exec(String(t || '')); return m ? +m[1] * 60 + +m[2] : 0; };
+  const hhmm = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+  const events = (state.events || [])
+    .filter((e) => occursOn(e, today))
+    .map((e) => ({
+      title: e.title, allDay: !e.time, time: e.time || null, color: e.color || '#4f6bed', location: e.location || '',
+      end: e.time ? hhmm(Math.min(1439, toMin(e.time) + (Number(e.duration) || 60))) : null,
+    }));
+  return { date: today, tz, tasks, habits, events: sortEvents(events) };
+}
+
+const sortEvents = (list) => list.sort((a, b) => (b.allDay - a.allDay) || (a.time || '').localeCompare(b.time || ''));
+
+/** Adds today's Google Calendar events when Google is connected (never fails the widget). */
+async function widgetWithGoogle(env, state) {
+  const d = widgetData(state);
+  try {
+    if (!gConfigured(env) || !(await env.KV.get('gcal', 'json'))?.refresh) return d;
+    const local = (iso) => localMinuteKey(new Date(iso), d.tz);
+    for (const e of await gEvents(env, d.date, d.date)) {
+      if (e.allDay) {
+        if (e.start <= d.date && d.date < e.end) d.events.push({ title: e.title, allDay: true, time: null, end: null, color: e.color, location: e.location || '' });
+        continue;
+      }
+      const s = local(e.start), en = local(e.end);
+      if (s.slice(0, 10) > d.date || en.slice(0, 10) < d.date) continue;
+      d.events.push({
+        title: e.title, allDay: false, color: e.color, location: e.location || '',
+        time: s.slice(0, 10) === d.date ? s.slice(11) : '00:00', end: en.slice(0, 10) === d.date ? en.slice(11) : '23:59',
+      });
+    }
+    sortEvents(d.events);
+  } catch { /* Google is optional */ }
+  return d;
 }
 
 function widgetHtml(d) {
@@ -421,7 +492,7 @@ export default {
       return json(await pushAll(env));
     }
     if (path === '/widget') {
-      const d = widgetData(await getState(env));
+      const d = await widgetWithGoogle(env, await getState(env));
       if (url.searchParams.get('format') === 'html') return new Response(widgetHtml(d), { headers: { 'Content-Type': 'text/html; charset=utf-8', ...CORS } });
       return json(d);
     }

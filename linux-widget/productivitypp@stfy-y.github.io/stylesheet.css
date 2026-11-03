@@ -1,0 +1,11 @@
+.ppp-label { margin-left: 6px; }
+.ppp-menu { min-width: 320px; }
+.ppp-header { font-weight: bold; }
+.ppp-summary { color: #9a9a9a; font-size: 0.9em; }
+.ppp-dot { width: 9px; height: 9px; border-radius: 5px; margin-right: 10px; }
+.ppp-time { color: #9a9a9a; font-feature-settings: "tnum"; min-width: 64px; }
+.ppp-title { }
+.ppp-done { color: #8a8a8a; text-decoration: line-through; }
+.ppp-overdue { color: #e5484d; font-weight: bold; }
+.ppp-now { font-weight: bold; }
+.ppp-error { color: #e5484d; }

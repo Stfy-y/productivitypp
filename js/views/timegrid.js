@@ -1,7 +1,7 @@
 // Time-blocking week grid: hours × days, overlap layout, free-time gaps, drag/resize tasks.
 import { esc } from '../util.js';
 import { today, addDays, parseYmd, fmtTime, WD_SHORT, pad } from '../dates.js';
-import { quadrant, settings, getTask, updateTask, getEvent, updateEvent } from '../store.js';
+import { quadrant, settings, getTask, updateTask, getEvent, updateEvent, detachOccurrence } from '../store.js';
 import { allEventsOn } from '../events.js';
 import { suppressNextClick } from '../drag.js';
 import { eventAttrs } from '../ui.js';
@@ -112,9 +112,9 @@ function block(it, place = verticalPlace) {
   const clash = it.overlap ? ` · ⚠ overlaps ${it.overlapsWith.map(name).join(', ')}` : '';
   if (it.kind === 'event') {
     const e = it.ev;
-    const local = e.local ? `data-drag-id="ev:${esc(e.id)}" data-resize="event"` : '';
+    const local = e.local ? `data-drag-id="ev:${esc(e.id)}@${esc(e.occ)}" data-resize="event"` : '';
     return `<div class="tb-item ev-block ${e.local ? 'local' : ''} ${short ? 'short' : ''} ${it.overlap ? 'overlap' : ''}" ${eventAttrs(e)} ${local} style="${style};--ec:${esc(e.color)}" title="${esc(e.title)} · ${esc(range)}${esc(clash)}">
-      <b>${esc(e.title)}</b><small>${esc(range)}${e.location ? ' · ' + esc(e.location) : ''}</small>${e.local ? '<button class="tb-resize" aria-label="Drag to change duration" tabindex="-1"></button>' : ''}</div>`;
+      <b>${e.repeating ? '<span class="rep" title="Repeating event">↻</span> ' : ''}${esc(e.title)}</b><small>${esc(range)}${e.location ? ' · ' + esc(e.location) : ''}</small>${e.local ? '<button class="tb-resize" aria-label="Drag to change duration" tabindex="-1"></button>' : ''}</div>`;
   }
   const t = it.t;
   return `<div class="tb-item task-block q${quadrant(t)} ${t.done ? 'is-done' : ''} ${short ? 'short' : ''} ${it.overlap ? 'overlap' : ''}" style="${style}"
@@ -144,7 +144,7 @@ export function renderTimeGrid(start, n, map, opts = {}) {
     </div>`).join('');
 
   const allday = cols.map((c) => `<div class="tb-adcell" data-drop="allday:${c.d}">${c.allDay.map((x) => x.kind === 'event'
-    ? `<div class="tb-chip ev" ${eventAttrs(x.ev)} ${x.ev.local ? `data-drag-id="ev:${esc(x.ev.id)}"` : ''} style="--ec:${esc(x.ev.color)}">${esc(x.ev.title)}</div>`
+    ? `<div class="tb-chip ev" ${eventAttrs(x.ev)} ${x.ev.local ? `data-drag-id="ev:${esc(x.ev.id)}@${esc(x.ev.occ)}"` : ''} style="--ec:${esc(x.ev.color)}">${x.ev.repeating ? '↻ ' : ''}${esc(x.ev.title)}</div>`
     : `<div class="tb-chip q${quadrant(x.t)} ${x.t.done ? 'is-done' : ''}" data-drag-id="${x.t.id}" data-action="edit-task" data-id="${x.t.id}">${esc(x.t.title)}</div>`).join('')}</div>`).join('');
 
   const hours = [...Array(24)].map((_, h) => (h ? `<span style="top:${h * HOUR_PX}px">${esc(fmtTime(fromMin(h * 60)).replace(':00', ''))}</span>` : '')).join('');
@@ -190,7 +190,7 @@ export function renderTimeRows(start, n, map) {
     const freeTotal = free.reduce((a, [s, e]) => a + (e - s), 0);
     const lanes = Math.max(1, ...timed.map((i) => i.cols || 1));
     const chips = allDay.map((x) => (x.kind === 'event'
-      ? `<div class="tb-chip ev" ${eventAttrs(x.ev)} ${x.ev.local ? `data-drag-id="ev:${esc(x.ev.id)}"` : ''} style="--ec:${esc(x.ev.color)}">${esc(x.ev.title)}</div>`
+      ? `<div class="tb-chip ev" ${eventAttrs(x.ev)} ${x.ev.local ? `data-drag-id="ev:${esc(x.ev.id)}@${esc(x.ev.occ)}"` : ''} style="--ec:${esc(x.ev.color)}">${x.ev.repeating ? '↻ ' : ''}${esc(x.ev.title)}</div>`
       : `<div class="tb-chip q${quadrant(x.t)} ${x.t.done ? 'is-done' : ''}" data-drag-id="${x.t.id}" data-action="edit-task" data-id="${x.t.id}">${esc(x.t.title)}</div>`)).join('');
     return `<div class="th-row ${d === t ? 'today' : ''} ${d < t ? 'past' : ''}">
       <div class="th-day" data-drop="allday:${d}">
@@ -281,7 +281,9 @@ export function enableResize(root) {
       window.removeEventListener('pointercancel', up);
       item.classList.remove('resizing');
       suppressNextClick();
-      if (dur !== (Number(rec.duration) || fallback)) (isEvent ? updateEvent : updateTask)(rec.id, { duration: dur });
+      if (dur === (Number(rec.duration) || fallback)) return;
+      if (isEvent && rec.repeat?.freq && item.dataset.date) detachOccurrence(rec.id, item.dataset.date, { duration: dur });
+      else (isEvent ? updateEvent : updateTask)(rec.id, { duration: dur });
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);

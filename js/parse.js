@@ -16,7 +16,7 @@ function futureDate(m, d, y) {
 
 export function parseQuick(text, { weekStart = 1 } = {}) {
   let s = ` ${text} `;
-  const out = { title: '', date: null, time: null, duration: null, quad: null, repeat: '', tokens: [] };
+  const out = { title: '', date: null, time: null, duration: null, quad: null, repeat: '', interval: 1, tokens: [] };
   const take = (re, fn) => {
     s = s.replace(re, (...m) => {
       if (fn(...m) === false) return m[0];
@@ -31,6 +31,12 @@ export function parseQuick(text, { weekStart = 1 } = {}) {
   take(new RegExp(`\\s!([1-4])${B}`), (_, n) => { out.quad = +n; });
 
   // Repeat
+  const UNIT = { day: 'daily', days: 'daily', week: 'weekly', weeks: 'weekly', month: 'monthly', months: 'monthly', year: 'yearly', years: 'yearly' };
+  take(new RegExp(`\\severy\\s(\\d{1,2})\\s(days?|weeks?|months?|years?)${B}`, 'i'), (_, n, u) => {
+    if (+n < 1) return false;
+    out.repeat = UNIT[u.toLowerCase()]; out.interval = +n;
+  });
+  take(new RegExp(`\\s(biweekly|fortnightly|every\\sother\\sweek|every\\stwo\\sweeks)${B}`, 'i'), () => { out.repeat = 'weekly'; out.interval = 2; });
   take(new RegExp(`\\s(every\\s?day|daily)${B}`, 'i'), () => { out.repeat = 'daily'; });
   take(new RegExp(`\\s(every\\s?weekday|weekdays)${B}`, 'i'), () => { out.repeat = 'weekdays'; });
   take(new RegExp(`\\severy\\s${WD_RE}${B}`, 'i'), (_, w) => {

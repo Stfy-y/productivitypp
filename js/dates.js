@@ -45,7 +45,7 @@ export function fmtDay(s, { long = false } = {}) {
 export const fmtDue = (date, time) => (date ? fmtDay(date) : '') + (time ? ' ' + fmtTime(time) : '');
 
 /** Next occurrence for a repeating task, never earlier than tomorrow-ish (today excluded only if date is today). */
-export function nextOccurrence(date, repeat) {
+export function nextOccurrence(date, repeat, every = 1) {
   const step = (d) => {
     switch (repeat) {
       case 'daily': return addDays(d, 1);
@@ -56,9 +56,10 @@ export function nextOccurrence(date, repeat) {
       default: return d;
     }
   };
-  let n = step(date);
+  let n = date;
+  for (let i = 0; i < Math.max(1, every | 0); i++) n = step(n);
   const t = today();
   let guard = 0;
-  while (n < t && guard++ < 1000) n = step(n);
+  while (n < t && guard++ < 1000) for (let i = 0; i < Math.max(1, every | 0); i++) n = step(n);
   return n;
 }

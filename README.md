@@ -56,6 +56,7 @@ Web apps can't add native home-screen widgets on Android or iOS. That's a platfo
 |---|---|
 | **Windows 11** | Real PWA widget: install with Edge, then open the Widgets board (`Win+W`) |
 | **iPhone** | Free [Scriptable](https://apps.apple.com/app/scriptable/id1405459188) app + [`extras/scriptable-widget.js`](extras/scriptable-widget.js) |
+| **Linux (GNOME)** | Top-bar widget with today's schedule, tasks and habits: see [`linux-widget/`](linux-widget/) |
 | **Android** | Long-press the app icon and drag *Add task* / *Today* / *Habits* shortcuts to the home screen. For a live list, any "web page widget" app can show `…/widget?format=html&token=…` |
 
 ## Project layout
