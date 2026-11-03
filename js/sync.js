@@ -32,7 +32,7 @@ export async function syncNow() {
       ? await api('/state', {
         method: 'PUT',
         body: JSON.stringify({
-          tasks: db.tasks, habits: db.habits,
+          tasks: db.tasks, habits: db.habits, events: db.events,
           tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
           allDay: settings.remindAllDay,
         }),

@@ -4,7 +4,7 @@ import { settings } from '../store.js';
 import { canNotify, canPush } from '../notify.js';
 import { calendars, loadCalendars } from '../gcal.js';
 
-export const VERSION = '1.1.1';
+export const VERSION = '1.5.0';
 export const install = { prompt: null };
 
 const ago = (ts) => {
@@ -40,7 +40,10 @@ function gcalCard(connected) {
       <p class="small faint">To put a task in Google Calendar, open it and tick “Add to Google Calendar”.</p>
       <div class="row-actions"><button class="btn" data-action="gcal-reload">Reload events</button><button class="btn ghost danger" data-action="gcal-disconnect">Disconnect</button></div>`;
   }
-  return `<section class="card"><h3>${icon('calendar')} Google Calendar</h3>${body}</section>`;
+  const problem = connected && g.problem ? `<p class="warn small">⚠ ${esc(g.problem)}</p>` : '';
+  const debug = connected && g.configured && !g.connected && g.clientIdEnd
+    ? `<p class="small faint">Worker is using Client ID …${esc(g.clientIdEnd)}<br>Redirect URI to register in Google: <code>${esc(g.redirectUri || '')}</code></p>` : '';
+  return `<section class="card"><h3>${icon('calendar')} Google Calendar</h3>${problem}${body}${debug}</section>`;
 }
 
 export function renderSettings() {
@@ -62,6 +65,15 @@ export function renderSettings() {
       ${['auto', 'light', 'dark'].map((v) => `<option ${settings.theme === v ? 'selected' : ''} value="${v}">${v[0].toUpperCase() + v.slice(1)}</option>`).join('')}</select></label>
     <label class="row">Week starts on<select data-setting="weekStart">
       <option value="1" ${settings.weekStart === 1 ? 'selected' : ''}>Monday</option><option value="0" ${settings.weekStart === 0 ? 'selected' : ''}>Sunday</option></select></label>
+    <label class="row">Day starts (free time counted from)<input type="time" data-setting="dayStart" value="${settings.dayStart}"></label>
+    <label class="row">Day ends<input type="time" data-setting="dayEnd" value="${settings.dayEnd}"></label>
+  </section>
+
+  <section class="card"><h3>⌨️ Keyboard shortcuts</h3>
+    <p class="small">Click a shortcut, then press the keys you want (letters, or combos like <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>E</kbd>). <kbd>Backspace</kbd> turns it off, <kbd>Esc</kbd> cancels. Some browser shortcuts, like <kbd>Ctrl</kbd>+<kbd>N</kbd>, can't be taken over.</p>
+    <div class="row">Quick add task<button class="btn small shortcut-btn" data-action="shortcut-record" data-which="task">${settings.shortcuts.task ? settings.shortcuts.task.split('+').map((k) => `<kbd>${esc(k)}</kbd>`).join('+') : 'Off'}</button></div>
+    <div class="row">Quick add event<button class="btn small shortcut-btn" data-action="shortcut-record" data-which="event">${settings.shortcuts.event ? settings.shortcuts.event.split('+').map((k) => `<kbd>${esc(k)}</kbd>`).join('+') : 'Off'}</button></div>
+    <div class="row-actions"><button class="btn ghost small" data-action="shortcut-reset">Reset to N / E</button></div>
   </section>
 
   <section class="card"><h3>${icon('bell')} Notifications</h3>
@@ -95,7 +107,7 @@ export function renderSettings() {
 
   <section class="card"><h3>Widgets</h3>
     <ul class="plain">
-      <li><b>Android:</b> long-press the app icon for shortcuts (Add task, Today, Matrix, Habits), and drag any of them onto your home screen.</li>
+      <li><b>Android:</b> long-press the app icon for shortcuts (Add task, Add event, Today, Matrix, Habits), and drag any of them onto your home screen.</li>
       <li><b>iPhone:</b> install the free <i>Scriptable</i> app and use <a href="extras/scriptable-widget.js" target="_blank">this widget script</a> (needs sync).</li>
       <li><b>Windows 11:</b> install the app with Edge; it shows up in the Widgets board.</li>
     </ul>

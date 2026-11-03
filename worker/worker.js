@@ -62,6 +62,13 @@ function remindersAt(state, minuteKey, allDayTime = '09:00') {
     const when = t.time ? `Due ${t.date === date ? 'today' : t.date} at ${t.time}` : `Due ${t.date === date ? 'today' : t.date}`;
     out.push({ tag: `t-${t.id}-${t.date}`, title: t.title, body: t.notes ? `${when} · ${t.notes.slice(0, 80)}` : when, url: `./#/task/${t.id}`, kind: 'task', id: t.id });
   }
+  for (const ev of state.events || []) {
+    if (ev.deleted || !ev.date || ev.remind == null || ev.remind === '') continue;
+    const at = shiftMinutes(`${ev.date}T${ev.time || allDayTime}`, -Number(ev.remind));
+    if (at !== minuteKey) continue;
+    const when = ev.time ? `${ev.date === date ? 'Today' : ev.date} at ${ev.time}` : `${ev.date === date ? 'Today' : ev.date} (all day)`;
+    out.push({ tag: `e-${ev.id}-${ev.date}`, title: ev.title, body: [when, ev.location].filter(Boolean).join(' · '), url: './#/calendar', kind: 'event', id: ev.id });
+  }
   const wd = new Date(date + 'T12:00:00Z').getUTCDay();
   for (const h of state.habits || []) {
     if (h.deleted || h.archived || !h.remind || h.remind !== hm) continue;
@@ -84,7 +91,7 @@ const b64url = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replac
 const enc = (s) => new TextEncoder().encode(s);
 
 async function getState(env) {
-  return (await env.KV.get('state', 'json')) || { tasks: [], habits: [], tz: 'UTC', allDay: '09:00' };
+  return (await env.KV.get('state', 'json')) || { tasks: [], habits: [], events: [], tz: 'UTC', allDay: '09:00' };
 }
 async function getSubs(env) { return (await env.KV.get('subs', 'json')) || []; }
 
@@ -171,7 +178,18 @@ function widgetHtml(d) {
 const GSCOPES = 'https://www.googleapis.com/auth/calendar.calendarlist.readonly https://www.googleapis.com/auth/calendar.events';
 const GAPI = 'https://www.googleapis.com/calendar/v3';
 class HttpError extends Error { constructor(status, msg) { super(msg); this.status = status; } }
-const gConfigured = (env) => !!(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET);
+const gId = (env) => String(env.GOOGLE_CLIENT_ID || '').trim().replace(/^["']|["']$/g, '');
+const gSecret = (env) => String(env.GOOGLE_CLIENT_SECRET || '').trim().replace(/^["']|["']$/g, '');
+const gConfigured = (env) => !!(gId(env) && gSecret(env));
+/** Catch the common copy/paste mistakes before Google returns a vague "client not found". */
+function gConfigProblem(env) {
+  const id = gId(env), secret = gSecret(env);
+  if (!id || !secret) return 'Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET on the worker first';
+  if (id.startsWith('GOCSPX-')) return 'GOOGLE_CLIENT_ID contains the client SECRET (starts with GOCSPX-). Swap the two values.';
+  if (!/^\d+-[a-z0-9]+\.apps\.googleusercontent\.com$/.test(id)) return `GOOGLE_CLIENT_ID doesn't look like a Client ID (it should look like 1234567890-abc123.apps.googleusercontent.com). Got: "${id.slice(0, 12)}…"`;
+  if (secret.endsWith('.apps.googleusercontent.com')) return 'GOOGLE_CLIENT_SECRET contains the Client ID. Swap the two values.';
+  return '';
+}
 const gRedirect = (url) => `${url.origin}/gcal/callback`;
 
 async function gToken(env) {
@@ -180,7 +198,7 @@ async function gToken(env) {
   if (g.access && g.exp > Date.now() + 60000) return g.access;
   const res = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
-    body: new URLSearchParams({ client_id: env.GOOGLE_CLIENT_ID, client_secret: env.GOOGLE_CLIENT_SECRET, refresh_token: g.refresh, grant_type: 'refresh_token' }),
+    body: new URLSearchParams({ client_id: gId(env), client_secret: gSecret(env), refresh_token: g.refresh, grant_type: 'refresh_token' }),
   });
   const j = await res.json();
   if (!res.ok) {
@@ -221,7 +239,7 @@ async function gEvents(env, start, end) {
   const lists = await Promise.all(cals.map(async (c) => {
     const q = new URLSearchParams({
       singleEvents: 'true', orderBy: 'startTime', timeMin, timeMax, maxResults: '500',
-      fields: 'items(id,summary,start,end,htmlLink,location,status,attendees(self,responseStatus))',
+      fields: 'items(id,summary,start,end,htmlLink,location,status,description,hangoutLink,organizer(displayName,email,self),attendees(email,displayName,self,responseStatus,organizer))',
     });
     try {
       const j = await gApi(env, `/calendars/${encodeURIComponent(c.id)}/events?${q}`);
@@ -230,7 +248,12 @@ async function gEvents(env, start, end) {
         .map((e) => ({
           id: e.id, cal: c.id, title: e.summary || '(No title)', allDay: !e.start?.dateTime,
           start: e.start?.dateTime || e.start?.date, end: e.end?.dateTime || e.end?.date,
-          color: c.color, link: e.htmlLink, location: e.location || '',
+          color: c.color, link: e.htmlLink, location: e.location || '', calName: c.name,
+          description: (e.description || '').slice(0, 4000), meet: e.hangoutLink || '',
+          organizer: e.organizer && !e.organizer.self ? (e.organizer.displayName || e.organizer.email || '') : '',
+          attendees: (e.attendees || []).slice(0, 25).map((a) => ({
+            name: a.displayName || a.email || '', email: a.email || '', status: a.responseStatus || 'needsAction', self: !!a.self, organizer: !!a.organizer,
+          })),
         }));
     } catch { return []; }
   }));
@@ -241,7 +264,7 @@ function taskToEvent(t, tz) {
   const ev = { summary: t.title, description: `${t.notes ? t.notes + '\n\n' : ''}Added from Productivity++` };
   if (t.time) {
     ev.start = { dateTime: `${t.date}T${t.time}:00`, timeZone: tz };
-    ev.end = { dateTime: `${shiftMinutes(`${t.date}T${t.time}`, 30)}:00`, timeZone: tz };
+    ev.end = { dateTime: `${shiftMinutes(`${t.date}T${t.time}`, Math.max(5, Number(t.duration) || 30))}:00`, timeZone: tz };
   } else {
     const d = new Date(`${t.date}T00:00:00Z`);
     d.setUTCDate(d.getUTCDate() + 1);
@@ -264,7 +287,7 @@ async function gCallback(url, env) {
   const res = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
     body: new URLSearchParams({
-      code: url.searchParams.get('code'), client_id: env.GOOGLE_CLIENT_ID, client_secret: env.GOOGLE_CLIENT_SECRET,
+      code: url.searchParams.get('code'), client_id: gId(env), client_secret: gSecret(env),
       redirect_uri: gRedirect(url), grant_type: 'authorization_code',
     }),
   });
@@ -282,16 +305,17 @@ async function gRoute(path, req, env, url) {
   if (path === '/gcal/status') {
     const g = await env.KV.get('gcal', 'json');
     const prefs = await gPrefs(env);
-    return json({ configured: gConfigured(env), connected: !!g?.refresh, email: g?.email || '', target: prefs.target || 'primary' });
+    return json({ configured: gConfigured(env), problem: gConfigProblem(env), clientIdEnd: gId(env).slice(-40), redirectUri: gRedirect(url), connected: !!g?.refresh, email: g?.email || '', target: prefs.target || 'primary' });
   }
-  if (!gConfigured(env)) throw new HttpError(501, 'Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET on the worker first');
+  const problem = gConfigProblem(env);
+  if (problem) throw new HttpError(501, problem);
   if (path === '/gcal/auth-url') {
     const ret = url.searchParams.get('return') || '';
     if (ret && !/^https?:\/\//.test(ret)) throw new HttpError(400, 'bad return url');
     const state = crypto.randomUUID();
     await env.KV.put(`gstate:${state}`, JSON.stringify({ ret }), { expirationTtl: 900 });
     const q = new URLSearchParams({
-      client_id: env.GOOGLE_CLIENT_ID, redirect_uri: gRedirect(url), response_type: 'code', scope: GSCOPES,
+      client_id: gId(env), redirect_uri: gRedirect(url), response_type: 'code', scope: GSCOPES,
       access_type: 'offline', prompt: 'consent', include_granted_scopes: 'true', state,
     });
     return json({ url: `https://accounts.google.com/o/oauth2/v2/auth?${q}` });
@@ -363,6 +387,7 @@ export default {
       const next = {
         tasks: mergeItems(cur.tasks, body.tasks),
         habits: mergeItems(cur.habits, body.habits, true),
+        events: mergeItems(cur.events, body.events),
         tz: body.tz || cur.tz || 'UTC',
         allDay: body.allDay || cur.allDay || '09:00',
         updatedAt: Date.now(),

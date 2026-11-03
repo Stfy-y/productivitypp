@@ -2,12 +2,7 @@ import { esc } from '../util.js';
 import { icon } from '../icons.js';
 import { today, addDays, fmtDay, parseYmd } from '../dates.js';
 import { tasks, sortTasks, habits, habitCount, isScheduled } from '../store.js';
-import { taskRow, eventRow } from '../ui.js';
-import { eventsOn, ensureRange } from '../gcal.js';
-
-const eventSection = (title, evs) => evs.length ? `
-  <section class="group"><h3 class="group-title">${esc(title)}<span class="count">${evs.length}</span></h3>
-  <div class="task-list">${evs.map(eventRow).join('')}</div></section>` : '';
+import { taskRow } from '../ui.js';
 
 export const LISTS = {
   today: { title: 'Today', icon: 'today' },
@@ -49,26 +44,21 @@ export function renderList(kind) {
     const todays = sortTasks(open.filter((x) => x.date === t));
     const doneToday = tasks().filter((x) => x.done && x.doneAt && new Date(x.doneAt).toDateString() === new Date().toDateString())
       .sort((a, b) => b.doneAt - a.doneAt);
-    ensureRange(t, t);
-    const evs = eventsOn(t);
     html += habitStrip();
-    html += eventSection('Schedule', evs);
     html += section('Overdue', overdue, { cls: 'red' });
     html += section(fmtDay(t, { long: true }), todays, { showDate: false, drop: `date:${t}` });
-    if (!overdue.length && !todays.length) html += empty(evs.length ? 'No tasks due today.' : 'Nothing due today. Enjoy it, or plan ahead.');
+    if (!overdue.length && !todays.length) html += empty('Nothing due today. Enjoy it, or plan ahead.');
     html += section('Completed today', doneToday, { showDate: false });
   }
 
   if (kind === 'week') {
-    ensureRange(t, addDays(t, 6));
     html += section('Overdue', overdue, { cls: 'red' });
     for (let i = 0; i < 7; i++) {
       const d = addDays(t, i);
       const list = sortTasks(open.filter((x) => x.date === d));
-      const evs = eventsOn(d);
       const label = `${fmtDay(d, { long: true })}${i < 2 ? ' · ' + parseYmd(d).toLocaleDateString([], { weekday: 'long' }) : ''}`;
-      html += `<section class="group"><h3 class="group-title ${list.length || evs.length ? '' : 'muted'}">${esc(label)}${list.length ? `<span class="count">${list.length}</span>` : ''}</h3>
-        <div class="task-list ${list.length || evs.length ? '' : 'empty-drop'}" data-drop="date:${d}">${evs.map(eventRow).join('')}${list.map((x) => taskRow(x, { showDate: false })).join('')}</div></section>`;
+      html += `<section class="group"><h3 class="group-title ${list.length ? '' : 'muted'}">${esc(label)}${list.length ? `<span class="count">${list.length}</span>` : ''}</h3>
+        <div class="task-list ${list.length ? '' : 'empty-drop'}" data-drop="date:${d}">${list.map((x) => taskRow(x, { showDate: false })).join('')}</div></section>`;
     }
   }
 

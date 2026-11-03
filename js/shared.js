@@ -27,6 +27,7 @@ export function mergeState(a, b) {
   return {
     tasks: mergeItems(a?.tasks, b?.tasks),
     habits: mergeItems(a?.habits, b?.habits, true),
+    events: mergeItems(a?.events, b?.events),
   };
 }
 
@@ -63,6 +64,13 @@ export function remindersAt(state, minuteKey, allDayTime = '09:00') {
     if (at !== minuteKey) continue;
     const when = t.time ? `Due ${t.date === date ? 'today' : t.date} at ${t.time}` : `Due ${t.date === date ? 'today' : t.date}`;
     out.push({ tag: `t-${t.id}-${t.date}`, title: t.title, body: t.notes ? `${when} · ${t.notes.slice(0, 80)}` : when, url: `./#/task/${t.id}`, kind: 'task', id: t.id });
+  }
+  for (const ev of state.events || []) {
+    if (ev.deleted || !ev.date || ev.remind == null || ev.remind === '') continue;
+    const at = shiftMinutes(`${ev.date}T${ev.time || allDayTime}`, -Number(ev.remind));
+    if (at !== minuteKey) continue;
+    const when = ev.time ? `${ev.date === date ? 'Today' : ev.date} at ${ev.time}` : `${ev.date === date ? 'Today' : ev.date} (all day)`;
+    out.push({ tag: `e-${ev.id}-${ev.date}`, title: ev.title, body: [when, ev.location].filter(Boolean).join(' · '), url: './#/calendar', kind: 'event', id: ev.id });
   }
   const wd = new Date(date + 'T12:00:00Z').getUTCDay();
   for (const h of state.habits || []) {

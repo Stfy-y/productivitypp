@@ -3,9 +3,17 @@ import { icon } from '../icons.js';
 import {
   today, addDays, addMonths, diffDays, startOfWeek, startOfMonth, parseYmd, fmtDay, fmtTime, WD_SHORT, MONTHS,
 } from '../dates.js';
-import { tasks, sortTasks, quadrant, settings, habits, habitCount, isScheduled } from '../store.js';
-import { taskRow, eventRow } from '../ui.js';
-import { eventsOn, ensureRange } from '../gcal.js';
+import { tasks, sortTasks, quadrant, QUADS, settings, habits, habitCount, isScheduled } from '../store.js';
+import { taskRow, eventRow, eventAttrs } from '../ui.js';
+import { ensureRange } from '../gcal.js';
+import { allEventsOn as eventsOn } from '../events.js';
+import { renderTimeGrid, toMin, fromMin, fmtDur, DEFAULT_DURATION } from './timegrid.js';
+
+/** Week mode: 7 days from week start on wide screens, 3 days from the cursor on phones. */
+function span() {
+  const n = matchMedia('(max-width: 699px)').matches ? 3 : 7;
+  return { n, start: n === 7 ? startOfWeek(state.cursor, settings.weekStart) : state.cursor };
+}
 
 const state = {
   mode: localStorage.getItem('ppp-cal-mode') || 'month',
@@ -15,8 +23,14 @@ const state = {
 
 export function calAction(action, el) {
   if (action === 'cal-mode') { state.mode = el.dataset.mode; localStorage.setItem('ppp-cal-mode', state.mode); }
-  if (action === 'cal-prev') state.cursor = state.mode === 'month' ? addMonths(startOfMonth(state.cursor), -1) : addDays(state.cursor, -7);
-  if (action === 'cal-next') state.cursor = state.mode === 'month' ? addMonths(startOfMonth(state.cursor), 1) : addDays(state.cursor, 7);
+  const step = (dir) => {
+    if (state.mode === 'month') return addMonths(startOfMonth(state.cursor), dir);
+    if (state.mode === 'day') return addDays(state.cursor, dir);
+    return addDays(span().start, dir * span().n);
+  };
+  if (action === 'cal-prev') state.cursor = step(-1);
+  if (action === 'cal-next') state.cursor = step(1);
+  if (action === 'cal-day') state.cursor = state.selected = el.dataset.date;
   if (action === 'cal-today') state.cursor = state.selected = today();
   if (action === 'cal-select') {
     state.selected = el.dataset.date;
@@ -51,7 +65,9 @@ export function renderCalendar() {
   const ws = settings.weekStart;
   const title = state.mode === 'month'
     ? `${MONTHS[parseYmd(state.cursor).getMonth()]} ${parseYmd(state.cursor).getFullYear()}`
-    : (() => { const s = startOfWeek(state.cursor, ws); const e = addDays(s, 6); return `${parseYmd(s).toLocaleDateString([], { month: 'short', day: 'numeric' })} – ${parseYmd(e).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}`; })();
+    : state.mode === 'day'
+      ? parseYmd(state.cursor).toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' })
+      : (() => { const { n, start: s } = span(); const e = addDays(s, n - 1); return `${parseYmd(s).toLocaleDateString([], { month: 'short', day: 'numeric' })} – ${parseYmd(e).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}`; })();
 
   let html = `<div class="cal-toolbar">
     <div class="cal-nav">
@@ -63,7 +79,8 @@ export function renderCalendar() {
       <button class="btn small ghost" data-action="cal-today">Today</button>
       <div class="seg small">
         <button data-action="cal-mode" data-mode="month" class="${state.mode === 'month' ? 'on' : ''}">Month</button>
-        <button data-action="cal-mode" data-mode="week" class="${state.mode === 'week' ? 'on' : ''}">Week</button>
+        <button data-action="cal-mode" data-mode="week" class="${state.mode === 'week' ? 'on' : ''}">${matchMedia('(max-width: 699px)').matches ? '3 Days' : 'Week'}</button>
+        <button data-action="cal-mode" data-mode="day" class="${state.mode === 'day' ? 'on' : ''}">Agenda</button>
       </div>
     </div>
   </div>`;
@@ -86,7 +103,7 @@ export function renderCalendar() {
       const evs = eventsOn(d);
       const cls = [d.slice(0, 7) !== month && 'out', d === t && 'today', d === state.selected && 'sel'].filter(Boolean).join(' ');
       const pills = [
-        ...evs.map((e) => `<div class="pill ev" style="--ec:${esc(e.color)}">${e.time ? `<b>${esc(fmtTime(e.time))}</b> ` : ''}${esc(e.title)}</div>`),
+        ...evs.map((e) => `<div class="pill ev" ${eventAttrs(e)} ${e.local ? `data-drag-id="ev:${esc(e.id)}"` : ''} style="--ec:${esc(e.color)}">${e.time ? `<b>${esc(fmtTime(e.time))}</b> ` : ''}${esc(e.title)}</div>`),
         ...list.map((x) => `<div class="pill q${quadrant(x)} ${x.done ? 'is-done' : ''}" data-drag-id="${x.id}">${x.time ? `<b>${esc(fmtTime(x.time))}</b> ` : ''}${esc(x.title)}</div>`),
       ];
       html += `<div class="day ${cls}" data-action="cal-select" data-date="${d}" data-drop="date:${d}">
@@ -96,20 +113,12 @@ export function renderCalendar() {
       </div>`;
     }
     html += `</div></div>${agenda(map)}</div>`;
+  } else if (state.mode === 'day') {
+    html += renderAgendaDay(map);
   } else {
-    const s = startOfWeek(state.cursor, ws);
-    ensureRange(s, addDays(s, 6));
-    html += `<div class="week-grid">`;
-    for (let i = 0; i < 7; i++) {
-      const d = addDays(s, i);
-      const list = map.get(d) || [];
-      html += `<div class="week-col ${d === t ? 'today' : ''}" data-drop="date:${d}">
-        <div class="week-col-head"><span>${WD_SHORT[parseYmd(d).getDay()]}</span><b>${parseYmd(d).getDate()}</b>
-          <button class="icon-btn small" data-action="quick-add" data-date="${d}" aria-label="Add task on ${d}">${icon('plus')}</button></div>
-        <div class="task-list">${eventsOn(d).map(eventRow).join('')}${list.map((x) => taskRow(x, { showDate: false })).join('') || (eventsOn(d).length ? '' : '<div class="faint">No tasks</div>')}</div>
-      </div>`;
-    }
-    html += `</div>`;
+    const { n, start } = span();
+    ensureRange(start, addDays(start, n - 1));
+    html += renderTimeGrid(start, n, map);
   }
   return html;
 }
@@ -122,4 +131,82 @@ function agenda(map) {
       <button class="btn small primary" data-action="quick-add" data-date="${d}">${icon('plus')} Add</button></div>
     <div class="task-list">${eventsOn(d).map(eventRow).join('')}${list.map((x) => taskRow(x, { showDate: false })).join('') || (eventsOn(d).length ? '' : '<div class="faint pad">Nothing this day.</div>')}</div>
   </aside>`;
+}
+
+/* ---------- Agenda: static, read-only schedule for one day ---------- */
+// Fixed-size blocks in time order, spanning only from the first start to the last end.
+function renderAgendaDay(map) {
+  const d = state.cursor;
+  const t = today();
+  const ws = startOfWeek(d, settings.weekStart);
+  ensureRange(ws, addDays(ws, 6));
+  const strip = [...Array(7)].map((_, i) => {
+    const x = addDays(ws, i);
+    const n = (map.get(x) || []).filter((k) => k.time && !k.done).length + eventsOn(x).length;
+    return `<button class="ds-day ${x === d ? 'sel' : ''} ${x === t ? 'today' : ''}" data-action="cal-day" data-date="${x}">
+      <small>${WD_SHORT[parseYmd(x).getDay()]}</small><b>${parseYmd(x).getDate()}</b><i class="ds-dot ${n ? 'on' : ''}"></i></button>`;
+  }).join('');
+
+  // Collect timed items
+  const items = [];
+  const allDay = [];
+  for (const e of eventsOn(d)) {
+    if (e.allDay) { allDay.push(e); continue; }
+    const s = e.time ? toMin(e.time) : 0;
+    const en = e.endTime ? toMin(e.endTime) : 1440;
+    items.push({ kind: 'event', title: e.title, s, e: Math.max(en, s), color: e.color, sub: [e.calName, e.location].filter(Boolean).join(' · ') });
+  }
+  for (const k of map.get(d) || []) {
+    if (!k.time) continue;
+    const s = toMin(k.time);
+    items.push({ kind: 'task', title: k.title, s, e: Math.min(1440, s + (Number(k.duration) || DEFAULT_DURATION)), q: quadrant(k), done: k.done, sub: QUADS[quadrant(k)].hint });
+  }
+  items.sort((a, b) => a.s - b.s || a.e - b.e);
+  for (const it of items) it.clash = items.filter((o) => o !== it && o.s < it.e && it.s < o.e).map((o) => o.title);
+
+  const clock = (m) => fmtTime(fromMin(Math.min(m, 1439)));
+  let rows = '';
+  let maxEnd = -1;
+  let free = 0;
+  items.forEach((it, i) => {
+    if (i > 0 && it.s - maxEnd >= 15) {
+      free += it.s - maxEnd;
+      rows += `<div class="ag-gap"><span>Free · ${fmtDur(it.s - maxEnd)}</span></div>`;
+    }
+    maxEnd = Math.max(maxEnd, it.e);
+    const dur = it.e - it.s;
+    rows += `<div class="ag-row">
+      <div class="ag-time">${esc(clock(it.s))}</div>
+      <div class="ag-rail"><i class="ag-dot ${it.kind === 'task' ? `q${it.q}` : ''}" ${it.kind === 'event' ? `style="--c:${esc(it.color)}"` : ''}></i></div>
+      <div class="ag-block ${it.kind} ${it.kind === 'task' ? `q${it.q}` : ''} ${it.done ? 'is-done' : ''} ${it.clash.length ? 'clash' : ''}" ${it.kind === 'event' ? `style="--c:${esc(it.color)}"` : ''}>
+        <div class="ag-main">
+          <div class="ag-title">${it.kind === 'task' ? `<span class="ag-kind">${it.done ? '✓' : '○'}</span>` : ''}${esc(it.title)}</div>
+          <div class="ag-sub">${esc(clock(it.s))} – ${esc(clock(it.e))}${it.sub ? ` · ${esc(it.sub)}` : ''}${it.clash.length ? ` · <span class="ag-warn">⚠ overlaps ${esc(it.clash.join(', '))}</span>` : ''}</div>
+        </div>
+        <div class="ag-dur">${fmtDur(dur)}</div>
+      </div>
+    </div>`;
+  });
+
+  let body;
+  if (!items.length) {
+    body = `<div class="empty"><div class="empty-art">${icon('calendar')}</div><p>Nothing scheduled ${d === t ? 'today' : 'this day'}.</p></div>`;
+  } else {
+    const first = items[0].s;
+    const busy = maxEnd - first - free;
+    body = `<div class="ag-summary">${esc(clock(first))} – ${esc(clock(maxEnd))} · ${items.length} item${items.length === 1 ? '' : 's'} · ${fmtDur(busy)} busy${free ? ` · <span class="free-sum">${fmtDur(free)} free</span>` : ''}</div>
+      <div class="ag-list">${rows}
+        <div class="ag-row ag-end"><div class="ag-time">${esc(clock(maxEnd))}</div><div class="ag-rail"><i class="ag-dot end"></i></div><div class="ag-endlabel">Done for the day</div></div>
+      </div>`;
+  }
+
+  return `<div class="date-strip agenda-strip">
+      <button class="icon-btn small" data-action="cal-day" data-date="${addDays(ws, -7)}" aria-label="Previous week">${icon('left')}</button>
+      ${strip}
+      <button class="icon-btn small" data-action="cal-day" data-date="${addDays(ws, 7)}" aria-label="Next week">${icon('right')}</button>
+    </div>
+    <div class="agenda-static">
+      ${allDay.length ? `<div class="ag-allday"><span class="ag-allday-label">All day</span>${allDay.map((e) => `<span class="ag-chip" style="--c:${esc(e.color)}">${esc(e.title)}</span>`).join('')}</div>` : ''}
+      ${body}
+    </div>`;
 }

@@ -11,10 +11,13 @@ const defaultSettings = {
   notify: false,
   push: false,
   remindAllDay: '09:00',
+  dayStart: '08:00', // free-time window in the week grid
+  dayEnd: '22:00',
   apiUrl: '',
   apiToken: '',
   lastSync: 0,
   syncError: '',
+  shortcuts: { task: 'N', event: 'E' }, // keyboard shortcuts for quick add
 };
 
 function load(key) {
@@ -23,7 +26,9 @@ function load(key) {
 
 export const db = load(KEY) || { tasks: [], habits: [], dirty: false, rev: 0, seeded: false };
 db.rev ??= 0;
+db.events ??= [];
 export const settings = { ...defaultSettings, ...(load(SKEY) || {}) };
+settings.shortcuts = { ...defaultSettings.shortcuts, ...(settings.shortcuts || {}) };
 
 const listeners = new Set();
 export const subscribe = (fn) => { listeners.add(fn); return () => listeners.delete(fn); };
@@ -111,6 +116,31 @@ export function sortTasks(list) {
     a.createdAt - b.createdAt);
 }
 
+/* ---------- Events (calendar only: no completion) ---------- */
+export const events = () => db.events.filter((e) => !e.deleted);
+export const getEvent = (id) => db.events.find((e) => e.id === id);
+
+export function addEvent(fields) {
+  const now = Date.now();
+  const e = {
+    id: uid(), title: '', date: today(), time: null, duration: 60, color: '#4f6bed',
+    location: '', notes: '', remind: null, createdAt: now, updatedAt: now, ...fields,
+  };
+  db.events.push(e);
+  changed();
+  return e;
+}
+
+export function updateEvent(id, patch) {
+  const e = getEvent(id);
+  if (!e) return null;
+  Object.assign(e, patch, { updatedAt: Date.now() });
+  changed();
+  return e;
+}
+
+export const deleteEvent = (id) => updateEvent(id, { deleted: true });
+
 /* ---------- Habits ---------- */
 export const habits = () => db.habits.filter((h) => !h.deleted);
 export const getHabit = (id) => db.habits.find((h) => h.id === id);
@@ -186,6 +216,7 @@ export function applyRemote(remote, revAtSend) {
   const merged = mergeState(db, remote);
   db.tasks = merged.tasks;
   db.habits = merged.habits;
+  db.events = merged.events;
   if (revAtSend === undefined || db.rev === revAtSend) db.dirty = false;
   persist();
   emit('remote');
@@ -196,6 +227,7 @@ export function replaceAll(data) {
   // Import: bump timestamps so the import wins on other devices too
   db.tasks = (data.tasks || []).map((t) => ({ ...t, updatedAt: now }));
   db.habits = (data.habits || []).map((h) => ({ ...h, updatedAt: now }));
+  db.events = (data.events || []).map((e) => ({ ...e, updatedAt: now }));
   changed();
 }
 

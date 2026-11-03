@@ -116,7 +116,7 @@ export function eventsOn(date) {
 
 /* ---------- Tasks → Google Calendar ---------- */
 // task.gcal = { want: true|false, cal, id, sig }. We reconcile after any change.
-const sig = (t) => [t.title, t.notes, t.date, t.time].join('|');
+const sig = (t) => [t.title, t.notes, t.date, t.time, t.duration || 30].join('|');
 let rtimer = null;
 let running = false;
 
@@ -151,4 +151,13 @@ async function reconcile() {
   } finally {
     running = false;
   }
+}
+
+/** Find a cached event by calendar + id (each repeating instance has its own id). */
+export function findEvent(cal, id) {
+  for (const k of Object.keys(cache)) {
+    const e = (cache[k].events || []).find((x) => x.id === id && x.cal === cal);
+    if (e) return e;
+  }
+  return null;
 }

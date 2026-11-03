@@ -16,7 +16,7 @@ function futureDate(m, d, y) {
 
 export function parseQuick(text, { weekStart = 1 } = {}) {
   let s = ` ${text} `;
-  const out = { title: '', date: null, time: null, quad: null, repeat: '', tokens: [] };
+  const out = { title: '', date: null, time: null, duration: null, quad: null, repeat: '', tokens: [] };
   const take = (re, fn) => {
     s = s.replace(re, (...m) => {
       if (fn(...m) === false) return m[0];
@@ -41,6 +41,13 @@ export function parseQuick(text, { weekStart = 1 } = {}) {
   take(new RegExp(`\\s(every\\s?week|weekly)${B}`, 'i'), () => { out.repeat = 'weekly'; });
   take(new RegExp(`\\s(every\\s?month|monthly)${B}`, 'i'), () => { out.repeat = 'monthly'; });
   take(new RegExp(`\\s(every\\s?year|yearly|annually)${B}`, 'i'), () => { out.repeat = 'yearly'; });
+
+  // Duration: for 2h, for 90 min, for 1.5 hours
+  take(new RegExp(`\\sfor\\s(\\d+(?:[.,]\\d+)?)\\s?(h|hr|hrs|hours?|m|min|mins|minutes?)${B}`, 'i'), (_, n, u) => {
+    const v = parseFloat(n.replace(',', '.')) * (/^h/i.test(u) ? 60 : 1);
+    if (!v || v > 1440) return false;
+    out.duration = Math.max(5, Math.round(v / 5) * 5);
+  });
 
   // Time: 3pm, 3:30pm, at 15:30, 15h30, at 9
   take(new RegExp(`\\s(?:at\\s+)?(\\d{1,2})(?::(\\d{2}))?\\s?(am|pm)${B}`, 'i'), (_, h, m = '00', ap) => {
