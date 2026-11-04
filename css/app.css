@@ -511,11 +511,14 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); box-sha
 }
 .tb-free span { font-size: 10.5px; font-weight: 700; color: var(--ok); padding: 3px 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 .tb-item {
-  position: absolute; z-index: 1; border-radius: 7px; padding: 3px 6px; overflow: hidden; font-size: 12px; line-height: 1.25;
+  position: absolute; z-index: 1; border-radius: 7px; padding: 3px 6px; overflow: hidden; font-size: 12px; line-height: 15px;
   display: flex; gap: 5px; align-items: flex-start; text-decoration: none; color: var(--text); cursor: pointer;
   box-shadow: 0 0 0 1.5px var(--surface);
 }
-.tb-item b { font-weight: 600; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tb-item b {
+  font-weight: 600; overflow: hidden; overflow-wrap: anywhere; white-space: normal; flex: none;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: var(--lines, 1); line-clamp: var(--lines, 1);
+}
 .tb-item small { display: block; font-size: 10.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tb-item.short { align-items: center; padding-block: 1px; }
 .ev-block { background: color-mix(in srgb, var(--ec) 22%, var(--surface)); border-left: 3px solid var(--ec); flex-direction: column; gap: 0; }
@@ -586,7 +589,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); box-sha
 .ag-dot { position: relative; z-index: 1; width: 12px; height: 12px; border-radius: 50%; background: var(--surface); border: 3px solid var(--c, var(--accent)); }
 .ag-dot.end { border-color: var(--faint); width: 10px; height: 10px; border-width: 2px; }
 .ag-block {
-  height: 64px; display: flex; align-items: center; gap: 12px; padding: 0 14px; border-radius: 12px; min-width: 0;
+  min-height: 64px; display: flex; align-items: center; gap: 12px; padding: 8px 14px; border-radius: 12px; min-width: 0;
   background: color-mix(in srgb, var(--c) 12%, var(--surface)); border-left: 4px solid var(--c); box-shadow: var(--shadow); cursor: default;
 }
 .ag-block.task { background: var(--surface); border: 1.5px solid color-mix(in srgb, var(--c) 45%, transparent); border-left: 4px solid var(--c); }
@@ -594,9 +597,9 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); box-sha
 .ag-block.is-done .ag-title { text-decoration: line-through; }
 .ag-block.clash { box-shadow: var(--shadow), 0 0 0 2px color-mix(in srgb, var(--q1) 45%, transparent); }
 .ag-main { flex: 1; min-width: 0; }
-.ag-title { font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ag-title { font-weight: 650; overflow-wrap: anywhere; }
 .ag-kind { color: var(--c); margin-right: 6px; font-weight: 800; }
-.ag-sub { font-size: 12.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ag-sub { font-size: 12.5px; color: var(--muted); overflow-wrap: anywhere; }
 .ag-warn { color: var(--q1); font-weight: 600; }
 .ag-dur { flex: none; font-size: 13px; font-weight: 700; padding: 4px 10px; border-radius: 99px; background: color-mix(in srgb, var(--c) 16%, transparent); color: var(--text); font-variant-numeric: tabular-nums; }
 .ag-gap { margin: 0 0 8px calc(var(--rail-x) + 40px); font-size: 12px; font-weight: 600; color: var(--ok); }
@@ -606,7 +609,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); box-sha
   .ag-list { --rail-x: 64px; }
   .ag-row { column-gap: 8px; }
   .ag-time { font-size: 12px; }
-  .ag-block { padding: 0 10px; gap: 8px; height: 60px; }
+  .ag-block { padding: 8px 10px; gap: 8px; min-height: 60px; }
   .ag-gap { margin-left: calc(var(--rail-x) + 32px); }
 }
 /* wide single column: roomier blocks */
@@ -708,3 +711,10 @@ kbd {
 .editor-foot.wrap { flex-wrap: wrap; row-gap: 8px; }
 .editor-foot.wrap .spacer { flex-basis: 100%; height: 0; }
 @media (min-width: 700px) { .editor-foot.wrap .spacer { flex-basis: auto; flex: 1; } .editor-foot.wrap { flex-wrap: wrap; } }
+
+/* ---------- Swipe between pages (phones) ---------- */
+.swipe-next { animation: swipe-next .22s ease-out; }
+.swipe-prev { animation: swipe-prev .22s ease-out; }
+@keyframes swipe-next { from { transform: translateX(28px); opacity: .4; } }
+@keyframes swipe-prev { from { transform: translateX(-28px); opacity: .4; } }
+@media (prefers-reduced-motion: reduce) { .swipe-next, .swipe-prev { animation: none; } }

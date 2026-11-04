@@ -44,6 +44,41 @@ export function calAction(action, el) {
 }
 export const calSelected = () => state.selected;
 
+/** Phones: swipe left/right to step through 3-day pages (week mode) and agenda days. */
+export function enableCalSwipe(root, rerender) {
+  let st = null;
+  root.addEventListener('touchstart', (e) => {
+    st = null;
+    if (e.touches.length !== 1 || root.dataset.view !== 'calendar') return;
+    if (!matchMedia('(max-width: 699px)').matches || (state.mode !== 'week' && state.mode !== 'day')) return;
+    // horizontal week layout scrolls sideways itself; the resize handle owns its gesture
+    if (e.target.closest('.th, .tb-resize, input, textarea, select')) return;
+    const t = e.touches[0];
+    st = { x: t.clientX, y: t.clientY, at: Date.now(), moved: 0 };
+  }, { passive: true });
+  root.addEventListener('touchmove', (e) => {
+    if (!st || st.moved) return;
+    const t = e.touches[0];
+    if (Math.hypot(t.clientX - st.x, t.clientY - st.y) > 8) st.moved = Date.now();
+  }, { passive: true });
+  root.addEventListener('touchend', (e) => {
+    if (!st) return;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - st.x, dy = t.clientY - st.y;
+    const quick = Date.now() - st.at < 700;
+    const held = !st.moved || st.moved - st.at > 300; // finger rested first = long-press drag, not a swipe
+    st = null;
+    if (!quick || held || Math.abs(dx) < 50 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+    const dir = dx < 0 ? 1 : -1;
+    if (state.mode === 'day') state.cursor = state.selected = addDays(state.cursor, dir);
+    else state.cursor = addDays(span().start, dir * span().n);
+    rerender();
+    const el = root.querySelector('.tb, .agenda-static');
+    if (el) el.classList.add(dir > 0 ? 'swipe-next' : 'swipe-prev');
+  }, { passive: true });
+  root.addEventListener('touchcancel', () => { st = null; }, { passive: true });
+}
+
 function byDate() {
   const map = new Map();
   for (const t of tasks()) {

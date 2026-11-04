@@ -97,16 +97,22 @@ function dayItems(d, tasksOnDay, opts = {}) {
   return { timed, allDay };
 }
 
+const LINE_PX = 15; // .tb-item line-height
+/** How many title lines fit in a block of this height (short blocks have no separate time line). */
+const titleLines = (h, short) => Math.max(1, Math.floor((short ? h - 2 : h - 10 - LINE_PX) / LINE_PX));
+
 function verticalPlace(it) {
   const top = it.s * PX_MIN;
   const height = Math.max(18, (it.ve - it.s) * PX_MIN - 2);
   const left = `calc(${(it.col / it.cols) * 100}% + 2px)`;
   const width = `calc(${(100 * it.span) / it.cols}% - 4px)`;
-  return { style: `top:${top}px;height:${height}px;left:${left};width:${width}`, short: height < 44 };
+  const short = height < 44;
+  return { style: `top:${top}px;height:${height}px;left:${left};width:${width}`, short, lines: titleLines(height, short) };
 }
 
 function block(it, place = verticalPlace) {
-  const { style, short } = place(it); // short = no room for two lines: put the time next to the title
+  const { style: pos, short, lines } = place(it); // short = no room for a time line: put the time next to the title
+  const style = `${pos};--lines:${lines}`;
   const range = `${fmtTime(fromMin(it.s))}${it.e - it.s >= 30 ? ' – ' + fmtTime(fromMin(Math.min(it.e, 1439))) : ''}`;
   const name = (o) => (o.kind === 'event' ? o.ev.title : o.t.title);
   const clash = it.overlap ? ` · ⚠ overlaps ${it.overlapsWith.map(name).join(', ')}` : '';
@@ -175,7 +181,7 @@ const LANE = 38;
 function horizontalPlace(it) {
   const left = it.s * PXX + 1;
   const width = Math.max(24, (it.ve - it.s) * PXX - 2);
-  return { style: `left:${left}px;width:${width}px;top:${4 + it.col * LANE}px;height:${LANE - 4}px`, short: true };
+  return { style: `left:${left}px;width:${width}px;top:${4 + it.col * LANE}px;height:${LANE - 4}px`, short: true, lines: titleLines(LANE - 4, true) };
 }
 
 export function renderTimeRows(start, n, map) {

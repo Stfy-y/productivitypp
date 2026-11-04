@@ -9,7 +9,7 @@ import { openQuickAdd, openTaskEditor, openHabitEditor, openEventSheet, openEven
 import { enableDrag, slotMinutesAt } from './drag.js';
 import { afterTimeGrid, enableResize, updateNowLine, fromMin } from './views/timegrid.js';
 import { renderList, LISTS } from './views/tasks.js';
-import { renderCalendar, calAction, calSelected } from './views/calendar.js';
+import { renderCalendar, calAction, calSelected, enableCalSwipe } from './views/calendar.js';
 import { renderMatrix, toggleMatrixDone } from './views/matrix.js';
 import { renderHabits, renderHabitDetail, habitAction } from './views/habits.js';
 import { renderSettings, install } from './views/settings.js';
@@ -350,6 +350,7 @@ document.addEventListener('keydown', (e) => {
 
 /* ---------- Drag & drop (matrix quadrants, calendar days, task groups) ---------- */
 enableResize($('#view'));
+enableCalSwipe($('#view'), render);
 enableDrag($('#view'), (dragId, kind, value, info) => {
   if (dragId.startsWith('ev:')) {
     const [id, occ] = dragId.slice(3).split('@');
