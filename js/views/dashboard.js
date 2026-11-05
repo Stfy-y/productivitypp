@@ -170,9 +170,9 @@ function nowNextCard(now, items) {
     next = timedItems(tm).find((i) => !i.done);
     if (next) nextDay = tm;
   }
-  const curHtml = current.map((c) => {
+  const curHtml = current.map((c, i) => {
     const p = ((now - c.s) / (c.en - c.s)) * 100;
-    return `<div class="nn-item now" ${itemAttrs(c)} style="--ec:${esc(c.color)}">
+    return `<div class="nn-item now" ${i ? 'data-trim="nn"' : ''} ${itemAttrs(c)} style="--ec:${esc(c.color)}">
       <span class="nn-label">Now</span><b>${esc(c.title)}</b>
       <small>${esc(range(c))}${c.sub ? ` · ${esc(c.sub)}` : ''} · ${fmtLeft(c.en - now)} left</small>
       <div class="nn-prog"><span style="width:${p.toFixed(1)}%"></span></div></div>`;
@@ -189,20 +189,20 @@ function examsCard() {
   if (!up.length) return '';
   const [first, ...rest] = up;
   const c = countdown(first);
-  const MAX = 4;
+  const MAX = 30; // the list scrolls inside the card
   return `<section class="card dash-exams"><h3>${icon('exam')} Exams <a class="link" href="#/exams">All exams</a></h3>
     <div class="dx-next lvl-${c.level}" data-action="exam-edit" data-id="${esc(first.id)}" role="button" tabindex="0" style="--ec:${esc(first.color)}">
       <div class="dx-count"><b>${esc(c.big)}</b>${c.unit ? `<small>${c.unit}</small>` : ''}</div>
       <div class="dx-info"><span class="nn-label">Next ${esc((EXAM_TYPES[first.examType] || 'exam').toLowerCase())}</span>
         <b>${esc(first.title)}</b><small>${esc(whenText(first))}${first.location ? ` · ${esc(first.location)}` : ''}</small></div>
     </div>
-    ${rest.slice(0, MAX).map((e) => {
+    ${rest.length ? `<div class="dx-list">${rest.slice(0, MAX).map((e) => {
       const k = countdown(e);
       return `<div class="dx-row" data-action="exam-edit" data-id="${esc(e.id)}" role="button" tabindex="0">
         <span class="dot" style="--c:${esc(e.color)}"></span><span class="dx-row-title">${esc(e.title)}<small>${esc(whenText(e))}</small></span>
         <span class="dx-pill lvl-${k.level}">${esc(k.unit ? `${k.big} ${k.unit}` : k.big)}</span></div>`;
-    }).join('')}
-    ${rest.length > MAX ? `<div class="center small"><a class="link" href="#/exams">+${rest.length - MAX} more</a></div>` : ''}
+    }).join('')}</div>` : ''}
+    ${moreLink('exams', Math.max(0, rest.length - MAX), '#/exams')}
   </section>`;
 }
 
@@ -213,7 +213,7 @@ function musicHint() {
   let off = false;
   try { off = localStorage.getItem(MUSIC_HINT_KEY) === '1'; } catch { /* private mode */ }
   if (off || !isLinuxDesktop()) return '';
-  return `<section class="card dash-music hint"><div class="mu">
+  return `<section class="card dash-music hint" data-trim="hint"><div class="mu">
     <div class="mu-art ph small">${icon('music')}</div>
     <div class="mu-info"><b>Show what's playing</b><small>One command to set up.</small></div>
     <a class="btn small primary" href="#/settings/music">Set up</a>
@@ -276,7 +276,7 @@ function weatherCard() {
     </div>
     ${hint ? `<div class="wx-hint">${esc(hint)}</div>` : ''}
     <div class="wx-hours">${w.hourly.slice(1, 13).map((h) => `<div class="wx-h"><small>${esc(fmtTime(h.time).replace(':00', ''))}</small><span>${wxIcon(h.code, h.isDay)}</span><b>${deg(h.temp)}</b>${h.pop >= 20 ? `<i>${h.pop}%</i>` : '<i></i>'}</div>`).join('')}</div>
-    <div class="wx-days">${w.daily.slice(1, 6).map((d) => `<div class="wx-d"><span>${esc(parseYmd(d.date).toLocaleDateString([], { weekday: 'short' }))}</span><span class="wx-d-ico">${wxIcon(d.code)}</span><small>${d.pop >= 20 ? `${d.pop}%` : ''}</small><b>${deg(d.max)}</b><span class="faint">${deg(d.min)}</span></div>`).join('')}</div>
+    <div class="wx-days">${w.daily.slice(1, 6).map((d) => `<div class="wx-d" data-trim="wxdays"><span>${esc(parseYmd(d.date).toLocaleDateString([], { weekday: 'short' }))}</span><span class="wx-d-ico">${wxIcon(d.code)}</span><small>${d.pop >= 20 ? `${d.pop}%` : ''}</small><b>${deg(d.max)}</b><span class="faint">${deg(d.min)}</span></div>`).join('')}</div>
     <div class="wx-foot faint">${td.sunrise ? `🌅 ${esc(fmtTime(td.sunrise))} · 🌇 ${esc(fmtTime(td.sunset))} · ` : ''}${age < 2 ? 'Updated just now' : `Updated ${age} min ago`}${weatherError ? ` · <span class="warn">${esc(weatherError)}</span>` : ''}</div>
   </section>`;
 }
@@ -300,14 +300,15 @@ function timelineCard(now, items) {
   for (const it of items) {
     const state = it.done ? 'done' : it.en <= now ? 'past' : it.s <= now ? 'now' : '';
     if (!marked && it.s > now) { html += nowMark(); marked = true; }
-    html += `<div class="tl-item ${state}" ${itemAttrs(it)} style="--ec:${esc(it.color)}">
+    html += `<div class="tl-item ${state}" data-trim="${state === 'past' || state === 'done' ? 'agenda-past' : state === 'now' ? 'agenda-now' : 'agenda'}" ${itemAttrs(it)} style="--ec:${esc(it.color)}">
       <span class="tl-time">${esc(fmtTime(minToHm(it.s)))}</span><span class="tl-bar"></span>
       <span class="tl-body"><span class="tl-title">${it.kind === 'task' ? `<button class="check mini ${it.done ? 'on' : ''}" data-action="toggle-task" data-id="${esc(it.t.id)}" aria-label="${it.done ? 'Mark not done' : 'Complete'}">${icon('check')}</button>` : ''}${esc(it.title)}</span>
       <small>${esc(range(it))}${it.sub ? ` · ${esc(it.sub)}` : ''}</small></span></div>`;
   }
   if (items.length && !marked) html += nowMark();
   if (!items.length && !allDay.length) html += '<div class="faint pad">No events today.</div>';
-  return `<section class="card dash-tl"><h3>${icon('calendar')} Today's agenda <a class="link" href="#/calendar">Calendar</a></h3><div class="tl">${html}</div></section>`;
+  return `<section class="card dash-tl"><h3>${icon('calendar')} Today's agenda <a class="link" href="#/calendar">Calendar</a></h3><div class="tl">${html}</div>
+    <div class="more-row"><a class="link" href="#/calendar" data-more="agenda" data-more-also="agenda-past" data-extra="0" hidden>+0 more</a></div></section>`;
 }
 
 function tasksCard() {
@@ -319,14 +320,14 @@ function tasksCard() {
   const dueToday = all.filter((x) => x.date === t);
   const doneToday = all.filter((x) => x.done && x.doneAt && new Date(x.doneAt).toDateString() === new Date().toDateString()).length;
   const list = [...overdue, ...todays];
-  const MAX = 8;
+  const MAX = 25;
   const left = open.filter((x) => x.date && x.date <= t).length;
   const pct = (doneToday / Math.max(1, doneToday + left)) * 100;
   return `<section class="card dash-tasks"><h3>${icon('today')} Tasks ${doneToday + left ? `<span class="count">${doneToday} done · ${left} left</span>` : ''}
       <button class="icon-btn small" data-action="quick-add" data-date="${t}" aria-label="Add task">${icon('plus')}</button></h3>
     ${doneToday + left ? `<div class="dash-prog"><span style="width:${pct.toFixed(1)}%"></span></div>` : ''}
-    <div class="task-list">${list.slice(0, MAX).map((x) => taskRow(x, { showDate: x.date !== t })).join('')}</div>
-    ${list.length > MAX ? `<div class="center"><a class="link" href="#/today">+${list.length - MAX} more</a></div>` : ''}
+    <div class="task-list">${list.slice(0, MAX).map((x) => taskRow(x, { showDate: x.date !== t }).replace('<div class="task ', '<div data-trim="tasks" class="task ')).join('')}</div>
+    ${moreLink('tasks', Math.max(0, list.length - MAX), '#/today')}
     ${!list.length ? `<div class="faint pad">${doneToday ? 'All done for today. Nice work!' : 'Nothing left to do today.'}${dueToday.some((x) => x.time && !x.done) ? ' (Timed tasks are in the agenda.)' : ''}</div>` : ''}
   </section>`;
 }
@@ -352,16 +353,95 @@ function tomorrowCard() {
   const w = settings.weatherLoc ? getWeather() : null;
   const wd = w?.daily?.find((d) => d.date === tm);
   const rows = [
-    ...allDay.map((e) => `<div class="tm-row" ${eventAttrs(e)}><span class="dot" style="--c:${esc(e.color)}"></span><span class="tm-t">All day</span><span>${esc(e.title)}</span></div>`),
-    ...timed.slice(0, 5).map((i) => `<div class="tm-row" ${itemAttrs(i)}><span class="dot" style="--c:${esc(i.color)}"></span><span class="tm-t">${esc(fmtTime(minToHm(i.s)))}</span><span>${esc(i.title)}</span></div>`),
+    ...allDay.map((e) => `<div class="tm-row" data-trim="tomorrow" ${eventAttrs(e)}><span class="dot" style="--c:${esc(e.color)}"></span><span class="tm-t">All day</span><span>${esc(e.title)}</span></div>`),
+    ...timed.slice(0, 12).map((i) => `<div class="tm-row" data-trim="tomorrow" ${itemAttrs(i)}><span class="dot" style="--c:${esc(i.color)}"></span><span class="tm-t">${esc(fmtTime(minToHm(i.s)))}</span><span>${esc(i.title)}</span></div>`),
   ];
   const first = timed[0];
   return `<section class="card dash-tm"><h3>${icon('week')} Tomorrow <small class="faint">${esc(parseYmd(tm).toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' }))}</small>
       ${wd ? `<span class="tm-wx" title="${esc(wxLabel(wd.code))}">${wxIcon(wd.code)} ${deg(wd.max)} / ${deg(wd.min)}</span>` : ''}</h3>
     ${rows.join('') || '<div class="faint pad">Nothing scheduled yet.</div>'}
-    ${timed.length > 5 ? `<div class="faint small">+${timed.length - 5} more</div>` : ''}
+    ${moreLink('tomorrow', Math.max(0, timed.length - 12), '#/calendar')}
     <p class="small">${first ? `Day starts with <b>${esc(first.title)}</b> at ${esc(fmtTime(minToHm(first.s)))}. ` : ''}${untimed ? `${untimed} task${untimed > 1 ? 's' : ''} planned.` : ''}</p>
   </section>`;
+}
+
+/* ---------- Fit to the window (no page scroll on laptops) ---------- */
+/** "+N more" link; N = rows hidden by the fit pass + `extra` rows that were never rendered. */
+function moreLink(group, extra, href) {
+  return `<div class="more-row"><a class="link" href="${href}" data-more="${group}" data-extra="${extra}" ${extra ? '' : 'hidden'}>+${extra} more</a></div>`;
+}
+
+const TASKS_MIN = 150; // header + one task + "+N more"
+const EXAMS_MIN = 190; // header + the next exam + a bit of the list
+const overflowing = (el) => !!el && el.scrollHeight > el.clientHeight + 1;
+/** Hide rows from the end while `cond()` is true (keeps at least `keep` rows). */
+function trimWhile(rows, cond, keep = 0) {
+  for (let i = rows.length - 1; i >= keep && cond(); i--) rows[i].hidden = true;
+}
+
+/* Cards can change height after the fit pass (the emoji font loading, cover art, late data).
+   Watch the fixed-size cards and fit again when one really changes; recorded heights stop loops. */
+let watcher = null;
+const fitHeights = new WeakMap();
+let refitQueued = false;
+function watchCards(dash) {
+  if (!('ResizeObserver' in window)) return;
+  watcher ??= new ResizeObserver((entries) => {
+    const changed = entries.some((e) => Math.abs((e.borderBoxSize?.[0]?.blockSize ?? e.target.offsetHeight) - (fitHeights.get(e.target) ?? -1)) > 0.5);
+    if (!changed || refitQueued) return;
+    refitQueued = true;
+    requestAnimationFrame(() => { refitQueued = false; fitDashboard(); });
+  });
+  watcher.disconnect();
+  for (const card of dash.querySelectorAll('.dash-col > .card:not(.dash-exams, .dash-tasks, .dash-tm)')) {
+    fitHeights.set(card, card.offsetHeight);
+    watcher.observe(card);
+  }
+}
+
+/** After each render: size the Dashboard to the window and trim lists so nothing needs the page to scroll. */
+export function fitDashboard() {
+  const dash = document.querySelector('.dash');
+  if (!dash) { document.body.classList.remove('dash-fit'); return; }
+  const fit = matchMedia('(min-width: 1100px) and (min-height: 600px)').matches;
+  document.body.classList.toggle('dash-fit', fit);
+  dash.querySelectorAll('[data-trim]').forEach((el) => { el.hidden = false; });
+  // show every "+N more" while trimming so its height is counted; ones left at 0 are hidden at the end
+  dash.querySelectorAll('[data-more]').forEach((a) => { a.hidden = false; });
+  dash.style.height = '';
+  if (fit) {
+    dash.style.height = `${Math.floor(window.innerHeight - dash.getBoundingClientRect().top - 16)}px`;
+    const rows = (g) => [...dash.querySelectorAll(`[data-trim="${g}"]`)];
+
+    // Column 1: the agenda shows in full (no scrolling); the exams list scrolls in whatever room is left.
+    // If even that's too tight, the agenda drops finished items (oldest first), then the latest ones.
+    const col1 = dash.querySelector('.dash-main');
+    const examsCard = dash.querySelector('.dash-exams');
+    const tight1 = () => overflowing(col1) || (!!examsCard && examsCard.clientHeight < EXAMS_MIN);
+    const past = rows('agenda-past');
+    for (let i = 0; i < past.length && tight1(); i++) past[i].hidden = true;
+    trimWhile(rows('agenda'), tight1);
+    // Column 2: keep room for the task list: drop the music setup hint, then extra "Now" items
+    const tasksCard = dash.querySelector('.dash-tasks');
+    const col2 = tasksCard?.closest('.dash-col');
+    const tight = () => !!tasksCard && (overflowing(col2) || tasksCard.clientHeight < TASKS_MIN);
+    trimWhile(rows('hint'), tight);
+    trimWhile(rows('nn'), tight);
+    trimWhile(rows('tasks'), () => overflowing(tasksCard));
+    // Column 3: tomorrow's list first, then the 5-day forecast (keep 2 days)
+    const tm = dash.querySelector('.dash-tm');
+    const col3 = tm?.closest('.dash-col');
+    trimWhile(rows('tomorrow'), () => overflowing(tm));
+    trimWhile(rows('wxdays'), () => overflowing(tm) || overflowing(col3), 2);
+
+  }
+  if (fit) watchCards(dash);
+  dash.querySelectorAll('[data-more]').forEach((a) => {
+    const groups = [a.dataset.more, a.dataset.moreAlso].filter(Boolean);
+    const n = +a.dataset.extra + groups.reduce((k, g) => k + dash.querySelectorAll(`[data-trim="${g}"][hidden]`).length, 0);
+    a.textContent = `+${n} more`;
+    a.hidden = !n;
+  });
 }
 
 export function renderDashboard() {

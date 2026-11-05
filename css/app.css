@@ -738,21 +738,34 @@ body[data-view="dashboard"] #view { max-width: 1640px; }
   .dash-main { grid-row: span 2; }
   .dash .card { margin: 0; }
 }
-@media (min-width: 1280px) {
-  .dash { grid-template-columns: 1.3fr 1fr 1fr; grid-template-rows: auto; }
+@media (min-width: 1100px) {
+  .dash { grid-template-columns: 1.2fr 1fr 1fr; grid-template-rows: auto; }
   .dash-main { grid-row: auto; }
 }
+/* Fit mode (laptop-sized windows): the page doesn't scroll, js/views/dashboard.js trims lists to fit */
+body.dash-fit #main { overflow: hidden; padding-bottom: 0; }
+body.dash-fit .dash { align-items: stretch; overflow: hidden; }
+body.dash-fit .dash-col { min-height: 0; overflow: hidden; }
+body.dash-fit .dash-col > .card:not(.dash-exams, .dash-tasks, .dash-tm) { flex: none; }
+body.dash-fit :is(.dash-exams, .dash-tasks, .dash-tm) { flex: 1 1 0; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+body.dash-fit .dash-exams > :not(.dx-list) { flex: none; }
+body.dash-fit .dash-exams .dx-list { flex: 1; min-height: 0; max-height: none; }
+/* lists inside shrinking cards keep their size, so the card overflows and the fit pass trims rows */
+body.dash-fit :is(.dash-tasks, .dash-tm) > * { flex: none; }
+body.dash-fit .dash-tasks { min-height: 96px; }
+.more-row { text-align: center; font-size: 13px; padding-top: 6px; }
+.more-row:has(> [hidden]) { display: none; }
 
 #view-actions .icon-btn.active { color: var(--accent); background: var(--accent-soft); }
 
-.dash-hero { padding: 22px 22px 18px; }
+.dash-hero { padding: 16px 18px 14px; }
 .clk { display: flex; align-items: flex-start; gap: 8px; font-variant-numeric: tabular-nums; line-height: 1; }
-.clk-main { font-size: clamp(64px, 8vw, 124px); font-weight: 750; letter-spacing: -.045em; }
-.clk-side { display: flex; flex-direction: column; gap: 6px; padding-top: .5em; font-size: clamp(16px, 1.6vw, 24px); font-weight: 650; color: var(--muted); }
+.clk-main { font-size: clamp(44px, 4.4vw, 72px); font-weight: 750; letter-spacing: -.04em; }
+.clk-side { display: flex; flex-direction: column; gap: 3px; padding-top: .35em; font-size: clamp(13px, 1.1vw, 16px); font-weight: 650; color: var(--muted); }
 .clk-sec { color: var(--faint); }
-.dash-date { font-size: clamp(18px, 1.8vw, 24px); font-weight: 650; margin-top: 10px; }
+.dash-date { font-size: clamp(16px, 1.3vw, 19px); font-weight: 650; margin-top: 6px; }
 .dash-greet { color: var(--muted); margin-top: 2px; }
-.dayline { margin-top: 16px; }
+.dayline { margin-top: 12px; }
 .dayline-bar, .dash-prog, .nn-prog { height: 6px; border-radius: 99px; background: var(--surface-2); overflow: hidden; }
 .dayline-bar span, .dash-prog span, .nn-prog span { display: block; height: 100%; border-radius: inherit; background: var(--accent); transition: width .4s; }
 .dayline small { display: block; margin-top: 6px; color: var(--muted); font-size: 13px; }
@@ -897,10 +910,10 @@ a.wx-loc:hover { color: var(--accent); }
 .dx-info { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .dx-info b { font-size: 17px; overflow-wrap: anywhere; }
 .dx-info small { color: var(--muted); font-size: 13px; }
+.dx-list { margin-top: 6px; max-height: 330px; overflow-y: auto; scrollbar-width: thin; overscroll-behavior: contain; }
 .dx-row { display: grid; grid-template-columns: 10px 1fr auto; align-items: center; gap: 10px; padding: 8px 6px; border-radius: 8px; cursor: pointer; }
 .dx-row:hover { background: var(--surface-2); }
-.dx-row + .dx-row, .dx-next + .dx-row { border-top: 1px solid var(--line); }
-.dx-next + .dx-row { margin-top: 6px; }
+.dx-row + .dx-row { border-top: 1px solid var(--line); }
 .dx-row-title { display: flex; flex-direction: column; min-width: 0; font-weight: 600; font-size: 14px; }
 .dx-row-title small { color: var(--muted); font-weight: 500; font-size: 12.5px; }
 .dx-pill { font-size: 12.5px; font-weight: 700; padding: 3px 9px; border-radius: 99px; color: var(--lvl); background: color-mix(in srgb, var(--lvl) 12%, transparent); white-space: nowrap; }

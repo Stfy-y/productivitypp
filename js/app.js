@@ -15,7 +15,7 @@ import { renderMatrix, toggleMatrixDone } from './views/matrix.js';
 import { renderHabits, renderHabitDetail, habitAction } from './views/habits.js';
 import { renderSettings, install } from './views/settings.js';
 import {
-  renderDashboard, dashActions, MUSIC_HINT_KEY, applyBurnIn, startDashTicker, syncWakeLock, awakeWanted, setAwakeWanted, toggleFullscreen,
+  renderDashboard, dashActions, MUSIC_HINT_KEY, applyBurnIn, fitDashboard, startDashTicker, syncWakeLock, awakeWanted, setAwakeWanted, toggleFullscreen,
 } from './views/dashboard.js';
 import { setWeatherListener, searchPlaces, pickPlace, useMyLocation, clearLocation } from './weather.js';
 import { setMusicListener, startMusic, refreshMusic, musicControl, installCommand, watchForHelper } from './music.js';
@@ -126,6 +126,7 @@ function renderView() {
   $('#view').dataset.view = name;
   if (name === 'calendar') afterTimeGrid($('#view'));
   document.body.dataset.view = name;
+  fitDashboard(); // also clears the no-scroll mode on other pages
   syncWakeLock(name === 'dashboard');
   $('#fab').hidden = ['settings', 'habit', 'habits'].includes(name);
 
@@ -509,7 +510,7 @@ setInterval(updateNowLine, 60 * 1000);
 let resizeT;
 window.addEventListener('resize', () => {
   clearTimeout(resizeT);
-  resizeT = setTimeout(() => { if (route.name === 'calendar') render(); }, 250);
+  resizeT = setTimeout(() => { if (route.name === 'calendar') render(); if (route.name === 'dashboard') fitDashboard(); }, 150);
 });
 
 let day = today();
