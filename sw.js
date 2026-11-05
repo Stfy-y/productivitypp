@@ -1,5 +1,5 @@
 /* Productivity++ service worker: offline cache, push reminders, notification clicks, Windows widgets. */
-const VERSION = 'v1.8.1';
+const VERSION = 'v1.8.2';
 const SHELL_CACHE = `ppp-shell-${VERSION}`;
 const CONFIG_CACHE = 'ppp-config';
 const SHELL = [
