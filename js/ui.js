@@ -6,7 +6,7 @@ import { gcalOn } from './gcal.js';
 import {
   settings, addTask, updateTask, deleteTask, getTask, toggleTask, quadrant, QUADS, quadFlags,
   snapshot, restore, addHabit, updateHabit, getHabit, addEvent, updateEvent, deleteEvent, getEvent,
-  isRepeating, deleteOccurrence, detachOccurrence,
+  isRepeating, deleteOccurrence, detachOccurrence, addExam, EXAM_TYPES,
 } from './store.js';
 
 /* ---------- Sheet / modal ---------- */
@@ -135,7 +135,7 @@ const fmtMins = (m) => (m >= 60 ? `${Math.floor(m / 60)}h${m % 60 ? ` ${m % 60}m
 const lastColor = () => { try { return localStorage.getItem('ppp-ev-color') || COLORS[0]; } catch { return COLORS[0]; } };
 
 export function openQuickAdd(preset = {}) {
-  let kind = preset.kind === 'event' ? 'event' : 'task';
+  let kind = ['event', 'exam'].includes(preset.kind) ? preset.kind : 'task';
   let color = lastColor();
   const keyHint = (k) => (settings.shortcuts?.[k] ? `<kbd>${esc(settings.shortcuts[k])}</kbd>` : '');
   openSheet(`
@@ -143,6 +143,7 @@ export function openQuickAdd(preset = {}) {
       <div class="seg qa-kind" role="tablist">
         <button type="button" data-kind="task" role="tab">Task ${keyHint('task')}</button>
         <button type="button" data-kind="event" role="tab">Event ${keyHint('event')}</button>
+        <button type="button" data-kind="exam" role="tab">Exam</button>
       </div>
       <input name="q" enterkeyhint="done" aria-label="Title">
       <div class="qa-colors swatches">${COLORS.map((c) => `<label><input type="radio" name="qcolor" value="${c}"><span style="background:${c}"></span></label>`).join('')}</div>
@@ -161,14 +162,21 @@ export function openQuickAdd(preset = {}) {
       const update = () => {
         $$('.qa-kind button', el).forEach((b) => { b.classList.toggle('on', b.dataset.kind === kind); b.setAttribute('aria-selected', b.dataset.kind === kind); });
         form.classList.toggle('is-event', kind === 'event');
-        input.placeholder = kind === 'event' ? 'Add an event… e.g. “Dinner with Ana fri 7pm for 2h”' : 'Add a task… e.g. “Call mom tomorrow 6pm !1”';
+        input.placeholder = kind === 'event' ? 'Add an event… e.g. “Dinner with Ana fri 7pm for 2h”'
+          : kind === 'exam' ? 'Add an exam… e.g. “Calculus 15.12 9am”' : 'Add a task… e.g. “Call mom tomorrow 6pm !1”';
         $('#qa-hint', el).textContent = kind === 'event'
           ? 'Shows only in the calendar · no time = all-day · “for 2h” sets the length'
+          : kind === 'exam' ? 'Gets a countdown on the Dashboard · reminder the day before · open it later to add the room'
           : 'Smart dates: today, fri, next week, 15.11, 3pm · !1–!4 = quadrant · daily/weekly';
         $$('input[name=qcolor]', el).forEach((r) => { r.checked = r.value === color; });
         const r = parse();
         const c = [];
         const date = r.date || preset.date || (kind === 'event' ? today() : null);
+        if (kind === 'exam') {
+          c.push(date ? `🎓 ${fmtDay(date)}${time0(r, preset) ? ' ' + fmtTime(time0(r, preset)) : ''} · in ${Math.max(0, diffDays(today(), date))} days` : '🎓 Add a date, e.g. “15.12” or “next fri”');
+          chips.innerHTML = c.map((x) => `<span class="chip">${x}</span>`).join('');
+          return;
+        }
         const time = r.time || (r.date ? null : preset.time);
         if (date) c.push(`📅 ${fmtDay(date)}${time ? ' ' + fmtTime(time) : kind === 'event' ? ' · all day' : ''}`);
         const dur = r.duration || (kind === 'event' && time ? 60 : null);
@@ -197,7 +205,12 @@ export function openQuickAdd(preset = {}) {
         const r = parse();
         if (!r.title) return;
         const time = r.time || (r.date ? null : preset.time || null);
-        if (kind === 'event') {
+        if (kind === 'exam') {
+          const date = r.date || preset.date;
+          if (!date) { toast('Add the exam date, e.g. “Calculus 15.12 9am”'); return; }
+          addExam({ title: r.title, date, time, ...(r.duration ? { duration: r.duration } : {}) });
+          toast(`Exam added: ${fmtDay(date)}`);
+        } else if (kind === 'event') {
           const date = r.date || preset.date || today();
           addEvent({ title: r.title, date, time, duration: r.duration || 60, color, repeat: r.repeat ? repeatFromParse(r, date) : null });
           toast(`Event added to ${fmtDay(date)}`);
@@ -214,6 +227,75 @@ export function openQuickAdd(preset = {}) {
         update();
         if (matchMedia('(max-width: 899px)').matches) closeSheet();
       };
+    },
+  });
+}
+
+const time0 = (r, preset) => r.time || (r.date ? null : preset.time);
+
+/* ---------- Exam editor ---------- */
+const EXAM_REMINDERS = [['', 'No reminder'], ['60', '1 hour before'], ['180', '3 hours before'], ['1440', '1 day before'], ['2880', '2 days before']];
+const EXAM_DURATIONS = [['30', '30 min'], ['45', '45 min'], ['60', '1 hour'], ['90', '1.5 hours'], ['120', '2 hours'], ['150', '2.5 hours'], ['180', '3 hours'], ['240', '4 hours']];
+
+/** Create (no id) or edit an exam. */
+export function openExamEditor(id, preset = {}) {
+  const ex = id ? getEvent(id) : null;
+  if (id && (!ex || ex.deleted)) return;
+  const v = ex || { title: '', examType: 'exam', date: preset.date || '', time: null, duration: 120, remind: 1440, location: '', color: '#e5484d', notes: '', grade: '' };
+  const past = v.date && v.date < today();
+  openSheet(`
+    <form class="editor" autocomplete="off">
+      <div class="editor-head">
+        <span class="ev-swatch" style="background:${esc(v.color)}"></span>
+        <input name="title" class="title-input" value="${esc(v.title)}" required placeholder="Subject, e.g. Calculus II" aria-label="Subject">
+      </div>
+      <div class="grid2">
+        <label>Type<select name="examType">${Object.entries(EXAM_TYPES).map(([k, l]) => `<option value="${k}" ${v.examType === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+        <label>Date<input type="date" name="date" value="${esc(v.date)}" required></label>
+        <label>Start time <small class="hint">(optional)</small><input type="time" name="time" value="${esc(v.time || '')}"></label>
+        <label>Duration<select name="duration">${opts(EXAM_DURATIONS, String(v.duration || 120))}</select></label>
+        <label>Room / place<input name="location" value="${esc(v.location)}" placeholder="e.g. Room 204"></label>
+        <label>Reminder<select name="remind">${opts(EXAM_REMINDERS, v.remind)}</select></label>
+      </div>
+      <div class="field-label">Color</div>
+      <div class="swatches">${COLORS.map((c) => `<label><input type="radio" name="color" value="${c}" ${c === v.color ? 'checked' : ''}><span style="background:${c}"></span></label>`).join('')}</div>
+      <textarea name="notes" rows="3" placeholder="Topics, materials, what to bring…">${esc(v.notes)}</textarea>
+      <div class="grid2 grade-row" ${past || v.grade ? '' : 'hidden'}><label class="span2">Grade / result<input name="grade" value="${esc(v.grade || '')}" placeholder="e.g. 9.50 or Passed"></label></div>
+      <div class="editor-foot">
+        ${ex ? `<button type="button" class="btn danger ghost" data-x="delete">${icon('trash')} Delete</button>` : ''}
+        <span class="spacer"></span>
+        <button type="button" class="btn ghost" data-x="cancel">Cancel</button>
+        <button type="submit" class="btn primary">${ex ? 'Save' : 'Add exam'}</button>
+      </div>
+    </form>`, {
+    onMount(el) {
+      const f = $('form', el);
+      const sync = () => { $('.grade-row', el).hidden = !(f.date.value && f.date.value < today()) && !f.grade.value; };
+      f.addEventListener('change', (e) => {
+        if (e.target.name === 'color') $('.ev-swatch', el).style.background = e.target.value;
+        sync();
+      });
+      if (!ex) setTimeout(() => f.title.focus(), 50);
+      f.onsubmit = (e) => {
+        e.preventDefault();
+        const fields = {
+          title: f.title.value.trim(), examType: f.examType.value, date: f.date.value, time: f.time.value || null,
+          duration: Number(f.duration.value) || 120, location: f.location.value.trim(),
+          remind: f.remind.value !== '' ? Number(f.remind.value) : null, color: f.color.value || v.color,
+          notes: f.notes.value, grade: f.grade.value.trim(),
+        };
+        if (!fields.title || !fields.date) return;
+        if (ex) updateEvent(id, fields); else { addExam(fields); toast(`Exam added: ${fmtDay(fields.date)}`); }
+        closeSheet();
+      };
+      el.addEventListener('click', (e) => {
+        const x = e.target.closest('[data-x]')?.dataset.x;
+        if (x === 'cancel') closeSheet();
+        if (x === 'delete') {
+          deleteEvent(id); closeSheet();
+          toast('Exam deleted', { action: 'Undo', onAction: () => updateEvent(id, { deleted: false }) });
+        }
+      });
     },
   });
 }

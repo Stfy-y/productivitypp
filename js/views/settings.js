@@ -3,8 +3,10 @@ import { icon } from '../icons.js';
 import { settings } from '../store.js';
 import { canNotify, canPush } from '../notify.js';
 import { calendars, loadCalendars } from '../gcal.js';
+import { locationForm } from './dashboard.js';
+import { musicError, installCommand, waitingForHelper } from '../music.js';
 
-export const VERSION = '1.8.0';
+export const VERSION = '1.12.0';
 export const install = { prompt: null };
 
 const ago = (ts) => {
@@ -70,6 +72,30 @@ export function renderSettings() {
       <option value="1" ${settings.weekStart === 1 ? 'selected' : ''}>Monday</option><option value="0" ${settings.weekStart === 0 ? 'selected' : ''}>Sunday</option></select></label>
     <label class="row">Day starts (free time counted from)<input type="time" data-setting="dayStart" value="${settings.dayStart}"></label>
     <label class="row">Day ends<input type="time" data-setting="dayEnd" value="${settings.dayEnd}"></label>
+    <label class="row"><span>Dashboard burn-in protection<br><small class="hint">Shifts it a few pixels every 3 minutes, for screens left on</small></span><span class="switch"><input type="checkbox" data-setting-bool="burnIn" ${settings.burnIn !== false ? 'checked' : ''}><span></span></span></label>
+  </section>
+
+  <section class="card"><h3>${icon('sun')} Dashboard weather</h3>
+    ${settings.weatherLoc ? `<p>Showing the weather for <b>${esc(settings.weatherLoc.full || settings.weatherLoc.name)}</b>. <button class="link" data-action="weather-clear">Remove</button></p>` : '<p>Pick a place to show the forecast on the Dashboard.</p>'}
+    ${locationForm()}
+    <label class="row">Units<select data-setting="units">
+      ${[['auto', 'Automatic'], ['metric', '°C, km/h'], ['imperial', '°F, mph']].map(([v, l]) => `<option value="${v}" ${settings.units === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+    <p class="small faint">Forecasts come from Open-Meteo, a free service. Only the place's coordinates are sent to it.</p>
+  </section>
+
+  <section class="card" id="music"><h3>${icon('music')} Now playing</h3>
+    <p>Show the song playing on this computer on the Dashboard, with play/pause/skip. Works on Linux with YouTube Music, Spotify, browser tabs, VLC and other players.</p>
+    ${settings.music
+      ? `${musicError ? `<p class="warn small">⚠ ${esc(musicError)} Run the setup command below again.</p>` : '<p class="ok small">✓ On. Look for it on the Dashboard.</p>'}
+        ${musicError ? `<div class="copy"><input readonly value="${esc(installCommand())}" aria-label="Setup command"><button class="btn small" data-action="music-copy">Copy</button></div>` : ''}
+        <div class="row-actions"><button class="btn ghost" data-action="music-disable">Turn off</button></div>`
+      : `<ol class="steps">
+          <li>Open a terminal (<kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>T</kbd>), then paste and run this:
+            <div class="copy"><input readonly value="${esc(installCommand())}" aria-label="Setup command"><button class="btn small primary" data-action="music-copy">Copy</button></div></li>
+          <li>${waitingForHelper ? '<span class="pulse"></span> Waiting for it to finish. This page connects by itself.' : 'Come back here. This page connects by itself.'}
+            If Chrome asks to allow access to devices on your local network, click <b>Allow</b>.</li>
+        </ol>
+        <p class="small faint">Already set up? <button class="link" data-action="music-enable">Connect now</button> · <a href="https://github.com/Stfy-y/productivitypp/tree/master/extras/now-playing" target="_blank" rel="noopener">How it works</a></p>`}
   </section>
 
   <section class="card"><h3>⌨️ Keyboard shortcuts</h3>

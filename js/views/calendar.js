@@ -120,6 +120,7 @@ export function renderCalendar() {
         <button data-action="cal-axis" data-axis="vertical" class="${state.axis !== 'horizontal' ? 'on' : ''}" aria-label="Days as columns" title="Days as columns">${AXIS_V}</button>
         <button data-action="cal-axis" data-axis="horizontal" class="${state.axis === 'horizontal' ? 'on' : ''}" aria-label="Days as rows" title="Days as rows">${AXIS_H}</button>
       </div>` : ''}
+      <a class="btn small ghost mobile-only" href="#/exams">${icon('exam')} Exams</a>
       <button class="btn small ghost" data-action="cal-today">Today</button>
       <div class="seg small">
         <button data-action="cal-mode" data-mode="month" class="${state.mode === 'month' ? 'on' : ''}">Month</button>

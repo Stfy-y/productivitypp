@@ -5,6 +5,8 @@ Plain HTML/CSS/JS with no build step and no dependencies. Hosted on GitHub Pages
 
 ## Features
 
+- **Dashboard:** a screen to leave open on your laptop: a big clock, weather and forecast, what's on now and next, today's agenda, tasks, habits and a look at tomorrow. Full screen (`F`), keep-the-screen-on and burn-in protection (it drifts a few pixels now and then). On Linux it can also show the song you're playing, with controls ([`extras/now-playing/`](extras/now-playing/)).
+- **Exams:** their own page and editor (type, room, notes, grade), a countdown on the Dashboard and a reminder the day before. They also show in the Calendar with 🎓. Quick add: switch to *Exam* and type `Calculus 15.12 9am`.
 - **Tasks:** Today, Next 7 Days, All, Completed. Repeating tasks, reminders, notes, undo.
 - **Smart quick add** (press `n` on desktop): `Gym tomorrow 6pm !2`, `Pay rent every month`, `Exam 15.12 at 9`, `Call mom fri`
   - `!1` Urgent & Important · `!2` Important · `!3` Urgent · `!4` Neither

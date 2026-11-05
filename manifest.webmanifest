@@ -3,7 +3,7 @@
   "name": "Productivity++",
   "short_name": "Productivity",
   "description": "Tasks, calendar, Eisenhower matrix and habit tracker.",
-  "start_url": "./#/today",
+  "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "orientation": "any",

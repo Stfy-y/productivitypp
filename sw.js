@@ -1,12 +1,12 @@
 /* Productivity++ service worker: offline cache, push reminders, notification clicks, Windows widgets. */
-const VERSION = 'v1.8.2';
+const VERSION = 'v1.12.0';
 const SHELL_CACHE = `ppp-shell-${VERSION}`;
 const CONFIG_CACHE = 'ppp-config';
 const SHELL = [
   './', 'index.html', 'manifest.webmanifest', 'css/app.css',
   'js/app.js', 'js/util.js', 'js/dates.js', 'js/shared.js', 'js/store.js', 'js/parse.js', 'js/sync.js',
-  'js/notify.js', 'js/icons.js', 'js/ui.js', 'js/drag.js', 'js/gcal.js', 'js/events.js',
-  'js/views/tasks.js', 'js/views/calendar.js', 'js/views/matrix.js', 'js/views/habits.js', 'js/views/settings.js', 'js/views/timegrid.js',
+  'js/notify.js', 'js/icons.js', 'js/ui.js', 'js/drag.js', 'js/gcal.js', 'js/events.js', 'js/weather.js', 'js/music.js',
+  'js/views/tasks.js', 'js/views/calendar.js', 'js/views/matrix.js', 'js/views/habits.js', 'js/views/settings.js', 'js/views/timegrid.js', 'js/views/dashboard.js', 'js/views/exams.js',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/badge-72.png', 'icons/apple-touch-icon.png',
   'widgets/today-template.json',
 ];

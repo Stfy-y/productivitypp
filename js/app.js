@@ -1,11 +1,12 @@
 import { $, $$, toast } from './util.js';
 import { icon } from './icons.js';
-import { today } from './dates.js';
+import { today, addDays } from './dates.js';
 import {
-  db, settings, saveSettings, subscribe, updateTask, updateEvent, getEvent, detachOccurrence, quadFlags, getHabit, updateHabit, cycleHabit,
+  db, settings, saveSettings, subscribe, updateTask, updateEvent, getEvent, detachOccurrence, quadFlags, getHabit, updateHabit, cycleHabit, isExam,
   clearCompleted, replaceAll,
 } from './store.js';
-import { openQuickAdd, openTaskEditor, openHabitEditor, openEventSheet, openEventEditor, doToggle, confirmDialog, closeSheet } from './ui.js';
+import { openQuickAdd, openTaskEditor, openHabitEditor, openEventSheet, openEventEditor, openExamEditor, doToggle, confirmDialog, closeSheet } from './ui.js';
+import { renderExams, upcomingExams } from './views/exams.js';
 import { enableDrag, slotMinutesAt } from './drag.js';
 import { afterTimeGrid, enableResize, updateNowLine, fromMin } from './views/timegrid.js';
 import { renderList, LISTS } from './views/tasks.js';
@@ -13,6 +14,11 @@ import { renderCalendar, calAction, calSelected, enableCalSwipe } from './views/
 import { renderMatrix, toggleMatrixDone } from './views/matrix.js';
 import { renderHabits, renderHabitDetail, habitAction } from './views/habits.js';
 import { renderSettings, install } from './views/settings.js';
+import {
+  renderDashboard, dashActions, MUSIC_HINT_KEY, applyBurnIn, startDashTicker, syncWakeLock, awakeWanted, setAwakeWanted, toggleFullscreen,
+} from './views/dashboard.js';
+import { setWeatherListener, searchPlaces, pickPlace, useMyLocation, clearLocation } from './weather.js';
+import { setMusicListener, startMusic, refreshMusic, musicControl, installCommand, watchForHelper } from './music.js';
 import { scheduleSync, syncNow, connect, writeSwConfig } from './sync.js';
 import {
   requestPermission, testLocal, startScheduler, enablePush, disablePush, testPush, refreshBadgeAndWidget,
@@ -23,10 +29,12 @@ import {
 
 /* ---------- Navigation ---------- */
 const NAV = [
+  { key: 'dashboard', title: 'Dashboard', icon: 'dashboard' },
   { key: 'today', title: 'Today', icon: 'today' },
   { key: 'week', title: 'Next 7 Days', icon: 'week' },
   { key: 'inbox', title: 'All Tasks', icon: 'inbox' },
   { key: 'calendar', title: 'Calendar', icon: 'calendar' },
+  { key: 'exams', title: 'Exams', icon: 'exam' },
   { key: 'matrix', title: 'Matrix', icon: 'matrix' },
   { key: 'habits', title: 'Habits', icon: 'habits' },
   { key: 'done', title: 'Completed', icon: 'done' },
@@ -34,7 +42,7 @@ const NAV = [
 ];
 const TABS = [
   { key: 'today', title: 'Tasks', icon: 'today', match: ['today', 'week', 'inbox', 'done'] },
-  { key: 'calendar', title: 'Calendar', icon: 'calendar' },
+  { key: 'calendar', title: 'Calendar', icon: 'calendar', match: ['calendar', 'exams'] },
   { key: 'matrix', title: 'Matrix', icon: 'matrix' },
   { key: 'habits', title: 'Habits', icon: 'habits', match: ['habits', 'habit'] },
   { key: 'settings', title: 'Settings', icon: 'settings' },
@@ -45,12 +53,14 @@ $('#sidebar').innerHTML = `<div class="brand">${'<img src="icons/icon.svg" alt="
 $('#tabbar').innerHTML = TABS.map((t) => `<a href="#/${t.key}" data-tab="${t.key}">${icon(t.icon)}<span>${t.title}</span></a>`).join('');
 $('#fab').innerHTML = icon('plus');
 
-let route = { name: 'today', arg: null };
-let lastViewHash = '#/today';
+// Start screen: the Dashboard on laptops/desktops, Today on phones (the Dashboard isn't in the phone tab bar)
+const homeRoute = () => (matchMedia('(min-width: 900px)').matches ? 'dashboard' : 'today');
+let route = { name: homeRoute(), arg: null };
+let lastViewHash = `#/${homeRoute()}`;
 
 function parseRoute() {
   const [name, ...rest] = location.hash.replace(/^#\/?/, '').split('/');
-  return { name: name || 'today', arg: rest.join('/') || null };
+  return { name: name || homeRoute(), arg: rest.join('/') || null };
 }
 
 function onRoute() {
@@ -74,10 +84,11 @@ function onRoute() {
   }
   closeSheet();
   route = r;
-  lastViewHash = location.hash || '#/today';
+  lastViewHash = location.hash || `#/${homeRoute()}`;
   $('#view').scrollTop = 0;
   $('#main').scrollTop = 0;
   render();
+  if (r.name === 'settings' && r.arg) document.getElementById(r.arg)?.scrollIntoView({ block: 'start' });
 }
 
 /* ---------- Render ---------- */
@@ -105,6 +116,8 @@ function renderView() {
   else if (name === 'habits') { html = renderHabits(); actions = `<button class="icon-btn" data-action="habit-new" aria-label="New habit">${icon('plus')}</button>`; }
   else if (name === 'habit') { html = renderHabitDetail(arg); title = 'Habit'; }
   else if (name === 'settings') html = renderSettings();
+  else if (name === 'dashboard') { html = renderDashboard(); actions = dashActions(); }
+  else if (name === 'exams') { html = renderExams(); actions = `<button class="icon-btn" data-action="exam-new" aria-label="New exam">${icon('plus')}</button>`; }
   else { html = renderList('today'); title = 'Today'; }
 
   $('#view-title').textContent = title;
@@ -113,6 +126,7 @@ function renderView() {
   $('#view').dataset.view = name;
   if (name === 'calendar') afterTimeGrid($('#view'));
   document.body.dataset.view = name;
+  syncWakeLock(name === 'dashboard');
   $('#fab').hidden = ['settings', 'habit', 'habits'].includes(name);
 
   $$('[data-nav]').forEach((a) => a.classList.toggle('on', a.dataset.nav === name || (name === 'habit' && a.dataset.nav === 'habits')));
@@ -129,6 +143,7 @@ function updateBadges() {
   const counts = {
     today: open.filter((x) => x.date && x.date <= t).length,
     inbox: open.length,
+    exams: upcomingExams().filter((e) => e.date <= addDays(t, 7)).length,
   };
   $$('[data-badge]').forEach((b) => { b.textContent = counts[b.dataset.badge] || ''; });
 }
@@ -138,7 +153,8 @@ function quickAddPreset(el) {
   const kind = route.name === 'calendar' ? 'event' : 'task';
   if (el?.dataset.date) return { date: el.dataset.date, kind };
   if (el?.dataset.quad) return { quad: +el.dataset.quad, kind: 'task' };
-  if (route.name === 'today') return { date: today(), kind };
+  if (route.name === 'exams') return { kind: 'exam' };
+  if (route.name === 'today' || route.name === 'dashboard') return { date: today(), kind };
   if (route.name === 'calendar') return { date: calSelected(), kind };
   return { kind };
 }
@@ -149,7 +165,11 @@ async function handleAction(action, el, e) {
     case 'toggle-task': doToggle(id); break;
     case 'edit-task': openTaskEditor(id); break;
     case 'quick-add': openQuickAdd(quickAddPreset(el)); break;
-    case 'edit-event': openEventEditor(id, el.dataset.date || null); break;
+    case 'edit-event':
+      if (isExam(getEvent(id))) openExamEditor(id); else openEventEditor(id, el.dataset.date || null);
+      break;
+    case 'exam-edit': openExamEditor(id); break;
+    case 'exam-new': openExamEditor(null); break;
     case 'shortcut-record': startRecording(el.dataset.which); break;
     case 'shortcut-reset':
       saveSettings({ shortcuts: { task: 'N', event: 'E' } }); toast('Shortcuts reset'); break;
@@ -182,6 +202,42 @@ async function handleAction(action, el, e) {
       calAction(action, el); render(); break;
 
     case 'matrix-done': toggleMatrixDone(); render(); break;
+
+    case 'dash-fullscreen': toggleFullscreen(); break;
+    case 'dash-awake': {
+      const on = !awakeWanted();
+      setAwakeWanted(on);
+      toast(on ? 'The screen will stay on while the dashboard is open' : 'The screen can sleep again');
+      render(); break;
+    }
+    case 'weather-geo':
+      try { await useMyLocation(); toast('Location saved'); } catch (err) { toast(err.message, { ms: 6000 }); }
+      break;
+    case 'weather-pick': pickPlace(+el.dataset.i); toast('Location saved'); break;
+    case 'weather-clear': clearLocation(); break;
+    case 'music-cmd':
+      try { await musicControl(el.dataset.cmd); } catch (err) { toast(err.message); }
+      break;
+    case 'music-enable':
+      saveSettings({ music: true });
+      if (await refreshMusic()) toast('Connected to the now-playing helper ✓');
+      else toast('Can\'t reach the helper. Copy the setup command and run it first.', { ms: 7000 });
+      render(); break;
+    case 'music-disable': saveSettings({ music: false }); break;
+    case 'music-copy':
+      try { await navigator.clipboard.writeText(installCommand()); toast('Copied. Paste it into a terminal.'); } catch { toast('Select the command and copy it'); }
+      if (!settings.music) {
+        watchForHelper(async () => {
+          saveSettings({ music: true });
+          await refreshMusic();
+          toast('Now playing is connected ✓', { action: 'Open Dashboard', onAction: () => { location.hash = '#/dashboard'; }, ms: 8000 });
+        });
+      }
+      break;
+    case 'music-hint-off':
+      try { localStorage.setItem(MUSIC_HINT_KEY, '1'); } catch { /* private mode */ }
+      toast('Hidden. You can set it up any time in Settings.');
+      render(); break;
 
     case 'install':
       if (install.prompt) { install.prompt.prompt(); await install.prompt.userChoice; install.prompt = null; render(); }
@@ -273,6 +329,7 @@ document.addEventListener('change', async (e) => {
     saveGcalPrefs({ target: el.value }).then(() => toast('Saved')).catch((err) => toast(err.message));
     return;
   }
+  if (el.dataset.settingBool) { saveSettings({ [el.dataset.settingBool]: el.checked }); return; }
   if (el.dataset.setting) {
     const k = el.dataset.setting;
     saveSettings({ [k]: k === 'weekStart' ? +el.value : el.value });
@@ -281,6 +338,13 @@ document.addEventListener('change', async (e) => {
 });
 
 document.addEventListener('submit', async (e) => {
+  if (e.target.matches('[data-weather-form]')) {
+    e.preventDefault();
+    const q = e.target.q.value.trim();
+    if (!q) return;
+    try { await searchPlaces(q); } catch (err) { toast(err.message); }
+    return;
+  }
   if (e.target.id !== 'sync-form') return;
   e.preventDefault();
   const f = e.target;
@@ -332,7 +396,7 @@ document.addEventListener('keydown', (e) => {
     toast(`Quick add ${which}: ${combo}`);
     return;
   }
-  if ((e.key === 'Enter' || e.key === ' ') && ['open-event', 'edit-event'].includes(e.target.dataset?.action)) {
+  if ((e.key === 'Enter' || e.key === ' ') && ['open-event', 'edit-event', 'exam-edit'].includes(e.target.dataset?.action)) {
     e.preventDefault();
     handleAction(e.target.dataset.action, e.target, e);
     return;
@@ -343,6 +407,7 @@ document.addEventListener('keydown', (e) => {
   // plain-key shortcuts must not fire while typing or inside an open window
   if (plain && (e.target.closest('input, textarea, select, [contenteditable]') || e.target.closest('#sheet-root'))) return;
   const kind = combo === settings.shortcuts.task ? 'task' : combo === settings.shortcuts.event ? 'event' : null;
+  if (!kind && combo === 'F' && route.name === 'dashboard') { e.preventDefault(); toggleFullscreen(); return; }
   if (!kind) return;
   e.preventDefault();
   openQuickAdd({ ...quickAddPreset(), kind });
@@ -376,6 +441,7 @@ enableDrag($('#view'), (dragId, kind, value, info) => {
 
 /* ---------- Theme ---------- */
 function applyTheme() {
+  applyBurnIn();
   const root = document.documentElement;
   if (settings.theme === 'auto') delete root.dataset.theme; else root.dataset.theme = settings.theme;
 }
@@ -393,6 +459,23 @@ subscribe((kind) => {
   scheduleReconcile();
 });
 setGcalListener(() => render());
+setWeatherListener(() => { if (route.name === 'dashboard' || route.name === 'settings') render(); });
+startDashTicker(() => route.name === 'dashboard' && document.visibilityState === 'visible', render);
+setMusicListener(() => { if (route.name === 'dashboard' || route.name === 'settings') render(); });
+startMusic(() => route.name === 'dashboard' && document.visibilityState === 'visible');
+
+/* ---------- Dashboard full screen: hide the app chrome and an idle mouse cursor ---------- */
+let idleT;
+document.addEventListener('fullscreenchange', () => {
+  document.documentElement.classList.toggle('is-fullscreen', !!document.fullscreenElement);
+  if (route.name === 'dashboard') render();
+});
+document.addEventListener('mousemove', () => {
+  const root = document.documentElement;
+  root.classList.remove('idle');
+  clearTimeout(idleT);
+  if (document.fullscreenElement) idleT = setTimeout(() => root.classList.add('idle'), 4000);
+}, { passive: true });
 
 /* ---------- PWA plumbing ---------- */
 window.addEventListener('beforeinstallprompt', (e) => {

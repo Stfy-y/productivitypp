@@ -18,6 +18,11 @@ const defaultSettings = {
   lastSync: 0,
   syncError: '',
   shortcuts: { task: 'N', event: 'E' }, // keyboard shortcuts for quick add
+  units: 'auto', // weather units: auto | metric | imperial
+  weatherLoc: null, // { name, lat, lon } for the dashboard weather
+  burnIn: true, // Dashboard drifts a few pixels now and then (protects screens left on)
+  music: false, // show now playing from the local helper (extras/now-playing)
+  musicUrl: 'http://127.0.0.1:8971',
 };
 
 function load(key) {
@@ -140,6 +145,17 @@ export function updateEvent(id, patch) {
 }
 
 export const deleteEvent = (id) => updateEvent(id, { deleted: true });
+
+/* ---------- Exams (stored as events with kind: 'exam', so they sync and remind like events) ---------- */
+export const EXAM_TYPES = {
+  exam: 'Exam', midterm: 'Midterm', test: 'Test / quiz', oral: 'Oral exam', presentation: 'Presentation', project: 'Project due',
+};
+export const isExam = (e) => e?.kind === 'exam';
+export const exams = () => events().filter(isExam)
+  .sort((a, b) => a.date.localeCompare(b.date) || (a.time || '').localeCompare(b.time || ''));
+export const addExam = (fields) => addEvent({
+  duration: 120, color: '#e5484d', remind: 1440, examType: 'exam', grade: '', ...fields, kind: 'exam', repeat: null,
+});
 export const isRepeating = (e) => !!e?.repeat?.freq;
 
 /** Skip one occurrence of a repeating event. */
