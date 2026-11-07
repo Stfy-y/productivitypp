@@ -13,12 +13,12 @@ import { renderList, LISTS } from './views/tasks.js';
 import { renderCalendar, calAction, calSelected, enableCalSwipe } from './views/calendar.js';
 import { renderMatrix, toggleMatrixDone } from './views/matrix.js';
 import { renderHabits, renderHabitDetail, habitAction } from './views/habits.js';
-import { renderSettings, install } from './views/settings.js';
+import { renderSettings, install, fillQr } from './views/settings.js';
 import {
   renderDashboard, dashActions, MUSIC_HINT_KEY, applyBurnIn, fitDashboard, startDashTicker, syncWakeLock, awakeWanted, setAwakeWanted, toggleFullscreen,
 } from './views/dashboard.js';
 import { setWeatherListener, searchPlaces, pickPlace, useMyLocation, clearLocation } from './weather.js';
-import { setMusicListener, startMusic, refreshMusic, musicControl, installCommand, watchForHelper } from './music.js';
+import { setMusicListener, startMusic, refreshMusic, musicControl, installCommand, watchForHelper, loadRemoteInfo, remoteInfo } from './music.js';
 import { openNowPlaying, closeNowPlaying, updateNowPlaying } from './nowplaying-full.js';
 import { scheduleSync, syncNow, connect, writeSwConfig } from './sync.js';
 import {
@@ -127,6 +127,7 @@ function renderView() {
   $('#view').innerHTML = html;
   $('#view').dataset.view = name;
   if (name === 'calendar') afterTimeGrid($('#view'));
+  if (name === 'settings') fillQr($('#view'));
   document.body.dataset.view = name;
   fitDashboard(); // also clears the no-scroll mode on other pages
   syncWakeLock(name === 'dashboard');
@@ -222,13 +223,22 @@ async function handleAction(action, el, e) {
       try { await musicControl(el.dataset.cmd); } catch (err) { toast(err.message); }
       break;
     case 'music-full': openNowPlaying(); break;
-    case 'music-full-close': closeNowPlaying(); break;
     case 'music-enable':
       saveSettings({ music: true });
       if (await refreshMusic()) toast('Connected to the now-playing helper ✓');
       else toast('Can\'t reach the helper. Copy the setup command and run it first.', { ms: 7000 });
       render(); break;
     case 'music-disable': saveSettings({ music: false }); break;
+    case 'music-remote-on': case 'music-remote-off': {
+      const r = await loadRemoteInfo(action === 'music-remote-on' ? 'enable' : 'disable');
+      if (!r || r.outdated) toast('Couldn\'t reach the helper. Run the setup command again.', { ms: 6000 });
+      else if (r.enabled) toast('Phone remote is on. Scan the code with your phone.');
+      else toast('Phone remote is off');
+      break;
+    }
+    case 'music-remote-copy':
+      try { await navigator.clipboard.writeText(remoteInfo?.links?.[0] || ''); toast('Link copied. Open it on your phone.'); } catch { toast('Select the link and copy it'); }
+      break;
     case 'music-copy':
       try { await navigator.clipboard.writeText(installCommand()); toast('Copied. Paste it into a terminal.'); } catch { toast('Select the command and copy it'); }
       if (!settings.music) {

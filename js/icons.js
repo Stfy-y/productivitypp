@@ -40,5 +40,9 @@ export const ICONS = {
   next: p('<path d="m5 4 10 8-10 8z" fill="currentColor"/><path d="M19 5v14"/>'),
   exam: p('<path d="M22 10 12 5 2 10l10 5 10-5z"/><path d="M6 12v5c3 2.5 9 2.5 12 0v-5M22 10v6"/>'),
   download: p('<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>'),
+  volume: p('<path d="M11 5 6 9H2v6h4l5 4z" fill="currentColor"/><path d="M15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14"/>'),
+  'volume-low': p('<path d="M11 5 6 9H2v6h4l5 4z" fill="currentColor"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/>'),
+  mute: p('<path d="M11 5 6 9H2v6h4l5 4z" fill="currentColor"/><path d="m22 9-6 6M16 9l6 6"/>'),
+  phone: p('<rect x="6" y="2" width="12" height="20" rx="3"/><path d="M11 18h2"/>'),
 };
 export const icon = (name) => ICONS[name] || '';
