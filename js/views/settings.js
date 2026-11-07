@@ -4,9 +4,9 @@ import { settings } from '../store.js';
 import { canNotify, canPush } from '../notify.js';
 import { calendars, loadCalendars } from '../gcal.js';
 import { locationForm } from './dashboard.js';
-import { musicError, installCommand, waitingForHelper, remoteInfo, ensureRemoteInfo, isLinuxDesktop } from '../music.js';
+import { musicError, installCommand, waitingForHelper, phoneInfo, ensurePhoneInfo, isLinuxDesktop, viaSync } from '../music.js';
 
-export const VERSION = '1.14.0';
+export const VERSION = '1.15.0';
 export const install = { prompt: null };
 
 const ago = (ts) => {
@@ -18,58 +18,37 @@ const ago = (ts) => {
 };
 
 let calLoading = false;
-/* ---------- Phone remote for Now playing ---------- */
-function remoteBlock() {
-  if (!isLinuxDesktop()) return '';
-  ensureRemoteInfo();
-  const r = remoteInfo;
-  const head = `<h4 class="remote-h">${icon('phone')} Phone remote</h4>`;
+/* ---------- Now playing on the phone ---------- */
+/** On the computer with the helper: share the song with the phone through the sync server. */
+function phoneBlock() {
+  ensurePhoneInfo();
+  const head = '<h4 class="np-phone-h">📱 On your phone</h4>';
+  if (!settings.apiUrl) {
+    return `${head}<p class="small">See what's playing here on your phone, with play/pause/skip and volume. It goes through your sync server, so first set up <b>Sync &amp; background push</b> below, here and on the phone.</p>`;
+  }
+  const r = phoneInfo;
   if (!r) return '';
   if (r.outdated) {
-    return `${head}<p class="small">Control the music from your phone with the full-screen player. First update the helper: run the setup command again.</p>
+    return `${head}<p class="small">See what's playing here on your phone. First update the helper: run the setup command again.</p>
       <div class="copy"><input readonly value="${esc(installCommand())}" aria-label="Setup command"><button class="btn small" data-action="music-copy">Copy</button></div>`;
   }
   if (!r.enabled) {
-    return `${head}<p class="small">Control the music from your phone with the full-screen player, volume included. Your phone needs to be on the same Wi-Fi as this computer.</p>
-      <div class="row-actions"><button class="btn" data-action="music-remote-on">${icon('phone')} Set up phone remote</button></div>`;
+    return `${head}<p class="small">See what's playing here on your phone, with play/pause/skip and volume. The song goes through your sync server, so taps take a second or two.</p>
+      <div class="row-actions"><button class="btn" data-action="music-phone-on">Show on my phone</button></div>`;
   }
-  const link = r.links?.[0] || '';
   return `${head}
-    ${!r.running ? `<p class="warn small">⚠ The helper couldn't open port ${r.port}. Is another program using it?</p>` : ''}
-    ${link ? `<div class="remote-pair">
-        <div class="qr" data-qr="${esc(link)}" role="img" aria-label="QR code for the phone remote"></div>
-        <div class="small"><p>Scan this with your phone's camera. Then use <b>Add to Home Screen</b> to keep it one tap away.</p>
-          <p class="faint">Doesn't load? Check that the phone is on the same Wi-Fi (not a guest network), and let your home network through the firewall: <code>sudo ufw allow from ${esc(lanRange(link))} to any port ${r.port} proto tcp</code></p></div>
-      </div>
-      <div class="copy"><input readonly value="${esc(link)}" aria-label="Phone remote link"><button class="btn small" data-action="music-remote-copy">Copy</button></div>`
-    : '<p class="warn small">⚠ This computer doesn\'t seem to be on a network.</p>'}
-    <p class="small faint">The link contains a secret key: anyone with it on your Wi-Fi can control your music. Turning the remote off makes old links stop working.</p>
-    <div class="row-actions"><button class="btn ghost" data-action="music-remote-off">Turn off phone remote</button></div>`;
+    ${r.error ? `<p class="warn small">⚠ ${esc(r.error)}</p>` : `<p class="ok small">✓ On. Open the app on your phone: the song shows above the tab bar. Tap it for the full-screen player.${r.sent ? ` Last sent ${esc(ago(r.sent * 1000))}.` : ''}</p>`}
+    <div class="row-actions"><button class="btn ghost" data-action="music-phone-off">Stop showing on my phone</button></div>`;
 }
 
-/** "192.168.0.22" in the link -> "192.168.0.0/24", for a firewall rule that only lets the home network in. */
-const lanRange = (link) => { const m = /\/\/(\d+\.\d+\.\d+)\.\d+:/.exec(link); return m ? `${m[1]}.0/24` : '192.168.0.0/16'; };
-
-let qrLib = null;
-/** Draw QR codes for [data-qr] elements (the generator is only loaded when needed). */
-export function fillQr(root) {
-  const els = [...root.querySelectorAll('[data-qr]:empty')];
-  if (!els.length) return;
-  qrLib ||= new Promise((resolve, reject) => {
-    const s = document.createElement('script');
-    s.src = 'js/vendor/qrcode.min.js';
-    s.onload = () => resolve(window.qrcode);
-    s.onerror = () => { qrLib = null; reject(); };
-    document.head.appendChild(s);
-  });
-  qrLib.then((qrcode) => {
-    for (const el of els) {
-      const qr = qrcode(0, 'M');
-      qr.addData(el.dataset.qr);
-      qr.make();
-      el.innerHTML = qr.createSvgTag({ cellSize: 4, margin: 3, scalable: true });
-    }
-  }).catch(() => els.forEach((el) => { el.hidden = true; }));
+/** On the phone (or any device without the helper). */
+function musicOnPhoneCard() {
+  return `<section class="card" id="music"><h3>${icon('music')} Now playing</h3>
+    <p>See what your Linux computer is playing, above the tab bar, with a full-screen player. Set it up on the computer: <b>Settings → Now playing</b>, then <b>Show on my phone</b>.</p>
+    ${!settings.apiUrl ? '<p class="small faint">It goes through your sync server: set up <b>Sync &amp; background push</b> below first.</p>'
+      : musicError && viaSync() ? `<p class="warn small">⚠ ${esc(musicError)}</p>` : ''}
+    <label class="row"><span>Show music from my computer</span><span class="switch"><input type="checkbox" data-setting-bool="musicPhone" ${settings.musicPhone !== false ? 'checked' : ''}><span></span></span></label>
+  </section>`;
 }
 
 function gcalCard(connected) {
@@ -137,13 +116,13 @@ export function renderSettings() {
     <p class="small faint">Forecasts come from Open-Meteo, a free service. Only the place's coordinates are sent to it.</p>
   </section>
 
-  <section class="card" id="music"><h3>${icon('music')} Now playing</h3>
-    <p>Show the song playing on this computer on the Dashboard, with play/pause/skip, volume and a full-screen player you can also open on your phone. Works on Linux with YouTube Music, Spotify, browser tabs, VLC and other players.</p>
+  ${!isLinuxDesktop() && !settings.music ? musicOnPhoneCard() : `<section class="card" id="music"><h3>${icon('music')} Now playing</h3>
+    <p>Show the song playing on this computer on the Dashboard, with play/pause/skip, volume and a full-screen player, and on your phone too. Works on Linux with YouTube Music, Spotify, browser tabs, VLC and other players.</p>
     ${settings.music
       ? `${musicError ? `<p class="warn small">⚠ ${esc(musicError)} Run the setup command below again.</p>` : '<p class="ok small">✓ On. Look for it on the Dashboard.</p>'}
         ${musicError ? `<div class="copy"><input readonly value="${esc(installCommand())}" aria-label="Setup command"><button class="btn small" data-action="music-copy">Copy</button></div>` : ''}
         <div class="row-actions"><button class="btn ghost" data-action="music-disable">Turn off</button></div>
-        ${musicError ? '' : remoteBlock()}`
+        ${musicError ? '' : phoneBlock()}`
       : `<ol class="steps">
           <li>Open a terminal (<kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>T</kbd>), then paste and run this:
             <div class="copy"><input readonly value="${esc(installCommand())}" aria-label="Setup command"><button class="btn small primary" data-action="music-copy">Copy</button></div></li>
@@ -151,7 +130,7 @@ export function renderSettings() {
             If Chrome asks to allow access to devices on your local network, click <b>Allow</b>.</li>
         </ol>
         <p class="small faint">Already set up? <button class="link" data-action="music-enable">Connect now</button> · <a href="https://github.com/Stfy-y/productivitypp/tree/master/extras/now-playing" target="_blank" rel="noopener">How it works</a></p>`}
-  </section>
+  </section>`}
 
   <section class="card"><h3>⌨️ Keyboard shortcuts</h3>
     <p class="small">Click a shortcut, then press the keys you want (letters, or combos like <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>E</kbd>). <kbd>Backspace</kbd> turns it off, <kbd>Esc</kbd> cancels. Some browser shortcuts, like <kbd>Ctrl</kbd>+<kbd>N</kbd>, can't be taken over.</p>

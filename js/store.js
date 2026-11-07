@@ -23,6 +23,7 @@ const defaultSettings = {
   burnIn: true, // Dashboard drifts a few pixels now and then (protects screens left on)
   music: false, // show now playing from the local helper (extras/now-playing)
   musicUrl: 'http://127.0.0.1:8971',
+  musicPhone: true, // on devices without the helper: show the computer's song (shared through the sync server)
 };
 
 function load(key) {

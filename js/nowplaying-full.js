@@ -1,17 +1,17 @@
 // Full-screen "Now playing": big cover, title/artist, progress and controls over a soft,
 // slowly drifting gradient made from the cover's own colours.
 // It lives outside #view so dashboard re-renders don't rebuild it (no flicker, no restarted animations).
-// It is also the whole page of the phone remote (js/remote.js), so it handles its own buttons
-// instead of relying on the app's data-action handler.
+// It handles its own buttons, so the app's data-action handler doesn't need to know about them.
+// On the phone it shows the computer's song, which arrives through the sync server (see music.js).
 import { esc } from './util.js';
 import { icon } from './icons.js';
-import { nowPlaying, livePosition, artUrl, musicError, musicControl, setMusicVolume } from './music.js';
+import { nowPlaying, livePosition, artUrl, musicError, musicControl, setMusicVolume, musicWatching, viaSync } from './music.js';
 
 let root = null;
 let tick = null;
 let weFullscreened = false;
 let lastArt = null;
-let remoteMode = false;
+let watchT = null;
 let volBusyUntil = 0; // ignore volume reports from the helper while the slider is being moved
 let volBeforeMute = 0.5;
 let flashT = null;
@@ -103,21 +103,18 @@ function applyArt(art) {
 /* ---------- DOM ---------- */
 function build() {
   const el = document.createElement('div');
-  el.className = `npf${remoteMode ? ' remote' : ''}`;
+  el.className = 'npf';
   el.setAttribute('role', 'dialog');
   el.setAttribute('aria-modal', 'true');
   el.setAttribute('aria-label', 'Now playing');
   el.tabIndex = -1;
-  const canFull = remoteMode && document.fullscreenEnabled;
   el.innerHTML = `
     <div class="npf-bg" aria-hidden="true">
       <div class="npf-blur"></div>
       <span class="npf-blob b1"></span><span class="npf-blob b2"></span><span class="npf-blob b3"></span><span class="npf-blob b4"></span>
       <div class="npf-grain"></div>
     </div>
-    ${remoteMode
-      ? (canFull ? `<button class="npf-close icon-btn" data-np="fullscreen" aria-label="Full screen" title="Full screen">${icon('expand')}</button>` : '')
-      : `<button class="npf-close icon-btn" data-np="close" aria-label="Close full screen player" title="Close (Esc)">${icon('close')}</button>`}
+    <button class="npf-close icon-btn" data-np="close" aria-label="Close full screen player" title="Close (Esc)">${icon('close')}</button>
     <div class="npf-clock" aria-hidden="true"><b class="npf-clock-time"></b><span class="npf-clock-date"></span></div>
     <div class="npf-body">
       <div class="npf-cover"></div>
@@ -159,7 +156,7 @@ function setText(sel, text) {
   n.hidden = !text;
 }
 
-/** A short message over the player (the phone remote has no app toasts). */
+/** A short message over the player (app toasts would sit behind it). */
 function flash(msg) {
   const n = root?.querySelector('.npf-flash');
   if (!n) return;
@@ -176,18 +173,12 @@ async function command(cmd) {
   try { await musicControl(cmd); } catch (err) { flash(err.message); }
 }
 
-function toggleOwnFullscreen() {
-  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
-  else document.documentElement.requestFullscreen?.().catch(() => {});
-}
-
 function onClick(e) {
   const btn = e.target.closest('[data-cmd], [data-np]');
   if (!btn || btn.disabled) return;
   if (btn.dataset.cmd) return command(btn.dataset.cmd);
   const what = btn.dataset.np;
   if (what === 'close') closeNowPlaying();
-  else if (what === 'fullscreen') toggleOwnFullscreen();
   else if (what === 'mute') {
     const v = nowPlaying()?.volume ?? 0;
     if (v > 0) volBeforeMute = v;
@@ -280,7 +271,7 @@ export function updateNowPlaying() {
   root.classList.toggle('empty', !live);
   setText('.npf-label', live ? `${playing ? 'Now playing' : 'Paused'}${s.player ? ` · ${s.player}` : ''}` : '');
   setText('.npf-title', live ? s.title : (s ? 'Nothing playing' : musicError || 'Connecting…'));
-  setText('.npf-artist', live ? s.artist : (s ? `Start something in your music app${remoteMode ? ' on your computer' : ''}.` : ''));
+  setText('.npf-artist', live ? s.artist : (s ? `Start something in your music app${viaSync() ? ' on your computer' : ''}.` : ''));
   setText('.npf-album', live && s.album && ![s.artist, s.title].includes(s.album) ? s.album : ''); // singles: album = title
   root.querySelector('.npf-title').title = live ? s.title : '';
   applyArt(live ? artUrl(s) : '');
@@ -311,7 +302,7 @@ function onKey(e) {
   if (!root || e.ctrlKey || e.metaKey || e.altKey) return;
   if (e.target.closest?.('input')) return; // the volume slider handles its own arrow keys
   const press = (cmd) => { e.preventDefault(); command(cmd); };
-  if (e.key === 'Escape' && !remoteMode) { e.preventDefault(); closeNowPlaying(); }
+  if (e.key === 'Escape') { e.preventDefault(); closeNowPlaying(); }
   else if (e.key === ' ' && !e.target.closest('button')) press('play-pause');
   else if (e.key === 'ArrowRight') press('next');
   else if (e.key === 'ArrowLeft') press('previous');
@@ -335,21 +326,17 @@ function onTouchEnd(e) {
   touch = null;
   if (!quick) return;
   if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) command(dx < 0 ? 'next' : 'previous');
-  else if (!remoteMode && start.top && dy > 90 && dy > Math.abs(dx) * 1.5) closeNowPlaying();
+  else if (start.top && dy > 90 && dy > Math.abs(dx) * 1.5) closeNowPlaying();
 }
 
 /* ---------- Open / close ---------- */
 function onFullscreenChange() {
   // leaving browser full screen (e.g. Esc) also leaves the player, if the player is what entered it
   if (root && weFullscreened && !document.fullscreenElement) { weFullscreened = false; closeNowPlaying(); }
-  const fs = root?.querySelector('[data-np="fullscreen"]');
-  if (fs) fs.innerHTML = icon(document.fullscreenElement ? 'shrink' : 'expand');
 }
 
-/** `remote`: the phone remote page, where the player is the whole page and can't be closed. */
-export function openNowPlaying({ remote = false } = {}) {
+export function openNowPlaying() {
   if (root) return;
-  remoteMode = remote;
   root = build();
   lastArt = null;
   document.body.appendChild(root);
@@ -359,17 +346,21 @@ export function openNowPlaying({ remote = false } = {}) {
   tick = setInterval(updateProgress, 500);
   document.addEventListener('keydown', onKey);
   document.addEventListener('fullscreenchange', onFullscreenChange);
-  if (!remote && !document.fullscreenElement && document.fullscreenEnabled) {
+  // on the phone: the computer checks for taps every second while the player is open
+  musicWatching();
+  watchT = setInterval(musicWatching, 5000);
+  if (!document.fullscreenElement && document.fullscreenEnabled) {
     document.documentElement.requestFullscreen?.().then(() => { weFullscreened = true; }).catch(() => {});
   }
   root.focus({ preventScroll: true });
 }
 
 export function closeNowPlaying() {
-  if (!root || remoteMode) return;
+  if (!root) return;
   const el = root;
   root = null;
   clearInterval(tick);
+  clearInterval(watchT);
   document.removeEventListener('keydown', onKey);
   document.removeEventListener('fullscreenchange', onFullscreenChange);
   document.documentElement.classList.remove('npf-open');
@@ -377,4 +368,54 @@ export function closeNowPlaying() {
   weFullscreened = false;
   el.classList.remove('in');
   setTimeout(() => el.remove(), 350);
+}
+
+/* ---------- Mini player (phone): the computer's song above the tab bar, tap to open the player ---------- */
+let mini = null;
+let miniTick = null;
+export function updateMiniPlayer() {
+  const s = nowPlaying();
+  const show = viaSync() && s && s.status !== 'none' && !!s.title;
+  document.body.classList.toggle('has-mini-np', !!show);
+  if (!show) {
+    if (mini) mini.hidden = true;
+    clearInterval(miniTick);
+    miniTick = null;
+    return;
+  }
+  if (!mini) {
+    mini = document.createElement('div');
+    mini.id = 'mini-np';
+    mini.innerHTML = `<button class="mnp-open" data-action="music-full" aria-label="Open the full-screen player">
+        <span class="mnp-art"></span><span class="mnp-text"><b></b><small></small></span></button>
+      <button class="icon-btn mnp-play" data-action="music-cmd" data-cmd="play-pause"></button>
+      <span class="mnp-prog" aria-hidden="true"><span></span></span>`;
+    document.body.appendChild(mini);
+  }
+  mini.hidden = false;
+  const playing = s.status === 'playing';
+  mini.classList.toggle('playing', playing);
+  const art = artUrl(s);
+  const artBox = mini.querySelector('.mnp-art');
+  if (artBox.dataset.src !== art) {
+    artBox.dataset.src = art;
+    artBox.innerHTML = art ? `<img src="${esc(art)}" alt="" referrerpolicy="no-referrer">` : icon('music');
+  }
+  mini.querySelector('.mnp-text b').textContent = s.title;
+  mini.querySelector('.mnp-text small').textContent = s.artist || s.album || '';
+  const play = mini.querySelector('.mnp-play');
+  play.disabled = !s.canPause;
+  if (play.dataset.state !== String(playing)) {
+    play.dataset.state = String(playing);
+    play.innerHTML = icon(playing ? 'pause' : 'play');
+    play.setAttribute('aria-label', playing ? 'Pause' : 'Play');
+  }
+  const prog = () => {
+    const cur = nowPlaying();
+    if (!mini || !cur?.length) return;
+    mini.querySelector('.mnp-prog span').style.width = `${Math.min(100, (livePosition(cur) / cur.length) * 100).toFixed(2)}%`;
+  };
+  prog();
+  musicWatching();
+  if (!miniTick) miniTick = setInterval(() => { prog(); musicWatching(); }, 1000);
 }

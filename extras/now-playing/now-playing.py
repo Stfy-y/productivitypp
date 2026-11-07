@@ -6,26 +6,23 @@ MPRIS (the standard Linux media interface: YouTube Music Desktop, Spotify, brows
 and hands it to the app's Dashboard at http://127.0.0.1:8971. It only listens on this computer,
 and only the app's own web addresses may read it or press play/pause/skip or change the volume.
 
-Phone remote (off until you turn it on in the app's Settings): a second server on port 8972 that
-your phone can open over the local network. Every request to it needs a secret key, which is in
-the link/QR code the app shows.
+Phone (off until you turn it on in the app's Settings): the helper also shares the song with your
+phone through the app's sync server, and plays/pauses/skips when you tap on the phone.
 
-Usage: now-playing.py [--port 8971] [--remote-port 8972] [--origin https://you.github.io] ...
+Usage: now-playing.py [--port 8971] [--origin https://you.github.io] ...
 """
 import argparse
-import hmac
-import html
 import json
 import mimetypes
 import os
 import re
-import secrets
 import shutil
-import socket
+import signal
 import subprocess
 import sys
 import threading
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -41,7 +38,6 @@ PLAYER = 'org.mpris.MediaPlayer2.Player'
 PROPS = 'org.freedesktop.DBus.Properties'
 COMMANDS = {'play-pause': 'PlayPause', 'next': 'Next', 'previous': 'Previous'}
 LOCAL_ORIGIN = re.compile(r'http://(localhost|127\.0\.0\.1)(:\d+)?')
-CONFIG = os.path.join(os.environ.get('XDG_CONFIG_HOME') or os.path.expanduser('~/.config'), 'productivitypp', 'remote.json')
 
 MIN_LENGTH_S = 20  # shorter "tracks" are notification sounds (chat apps report those as playing)
 
@@ -335,126 +331,135 @@ def art_file():
         return f.read(), mime
 
 
-# ---------- Phone remote ----------
-remote = {'enabled': False, 'token': '', 'app': ''}
-remote_server = None
-remote_port = 8972
-APP_FILE = re.compile(r'(css/[\w-]+\.css|js/[\w-]+(/[\w-]+)*\.js|icons/[\w-]+\.(png|svg))')
-app_cache = {}  # path -> (bytes, type, fetched at)
+# ---------- Phone: share through the sync server ----------
+# Phones can't reach this helper (an https app may not call a computer on the home network), so the
+# helper hands the current song to the app's own sync server (the Cloudflare Worker) and picks up
+# the phone's taps from there. Off until it's turned on in the app's Settings.
+#
+# The Worker keeps data in Cloudflare KV, whose free plan allows 1,000 writes a day: the song is only
+# sent when something changes (song, play/pause, a seek, the volume), plus a check-in every 10 minutes
+# while something is playing so the phone can tell when the computer went away.
+RELAY_FILE = os.path.join(os.environ.get('XDG_CONFIG_HOME') or os.path.expanduser('~/.config'), 'productivitypp', 'relay.json')
+relay = {'url': '', 'token': ''}
+relay_status = {'ok': False, 'error': '', 'sent': 0}
+relay_lock = threading.Lock()
+relay_wake = threading.Event()
+RELAY_FIELDS = ('status', 'player', 'title', 'artist', 'album', 'art', 'length', 'canNext', 'canPrevious', 'canPause', 'volume')
 
 
-def load_remote():
+def load_relay():
     try:
-        with open(CONFIG) as f:
-            remote.update({k: v for k, v in json.load(f).items() if k in remote})
+        with open(RELAY_FILE) as f:
+            relay.update({k: v for k, v in json.load(f).items() if k in relay})
     except (OSError, ValueError):
         pass
 
 
-def save_remote():
-    os.makedirs(os.path.dirname(CONFIG), exist_ok=True)
-    fd = os.open(CONFIG, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+def save_relay():
+    os.makedirs(os.path.dirname(RELAY_FILE), exist_ok=True)
+    fd = os.open(RELAY_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)  # holds the sync token
     with os.fdopen(fd, 'w') as f:
-        json.dump(remote, f)
+        json.dump(relay, f)
 
 
-def lan_addresses():
-    ips = []
-    try:  # the address this computer would use to reach the internet (no packet is sent)
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-            s.connect(('192.0.2.1', 9))
-            ips.append(s.getsockname()[0])
-    except OSError:
-        pass
+def worker(method, path, body=None, url=None, token=None):
+    req = urllib.request.Request(
+        (url or relay['url']).rstrip('/') + path, method=method,
+        data=None if body is None else json.dumps(body).encode(),
+        headers={'Authorization': f'Bearer {token or relay["token"]}', 'Content-Type': 'application/json',
+                 'User-Agent': 'productivitypp-now-playing'})
     try:
-        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
-            ip = info[4][0]
-            if not ip.startswith('127.') and ip not in ips:
-                ips.append(ip)
-    except OSError:
-        pass
-    return ips
+        with urllib.request.urlopen(req, timeout=8) as r:
+            return json.load(r)
+    except urllib.error.HTTPError as e:
+        try:
+            msg = json.load(e).get('error') or ''
+        except Exception:
+            msg = ''
+        if e.code == 404:
+            msg = 'The sync server is out of date: paste the latest worker.js into it and deploy.'
+        raise RuntimeError(msg or f'Sync server error {e.code}') from None
 
 
-def remote_info():
-    # the key goes in the address itself, so a home-screen icon made from it keeps working
-    links = [f'http://{ip}:{remote_port}/remote?k={remote["token"]}' for ip in lan_addresses()] if remote['enabled'] else []
-    return {'enabled': remote['enabled'], 'running': remote_server is not None, 'links': links, 'port': remote_port}
+def relay_info():
+    with relay_lock:
+        return {'enabled': bool(relay['url']), **relay_status}
 
 
-def start_remote():
-    global remote_server
-    if remote_server:
-        return
-    try:
-        remote_server = ThreadingHTTPServer(('0.0.0.0', remote_port), RemoteHandler)
-    except OSError as e:
-        print(f'Phone remote: can\'t listen on port {remote_port}: {e}', flush=True)
-        return
-    remote_server.daemon_threads = True
-    threading.Thread(target=remote_server.serve_forever, daemon=True).start()
-    print(f'Phone remote on port {remote_port}', flush=True)
+def run_command(c):
+    cmd = c.get('cmd')
+    if cmd == 'volume':
+        set_volume(float(c.get('v')))
+    elif cmd in COMMANDS:
+        name, _ = current()
+        if name:
+            dbus(name, OBJ, PLAYER, COMMANDS[cmd])
 
 
-def stop_remote():
-    global remote_server
-    if remote_server:
-        srv, remote_server = remote_server, None
-        threading.Thread(target=lambda: (srv.shutdown(), srv.server_close()), daemon=True).start()
+def relay_loop():
+    last_sig, last_push, pushed_pos = None, 0.0, None  # pushed_pos: (position, when, playing)
+    last_id, next_inbox, backoff_until = None, 0.0, 0.0
+    while True:
+        relay_wake.wait(0.5)
+        relay_wake.clear()
+        if not relay['url']:
+            last_sig, last_id = None, None
+            continue
+        now = time.time()
+        if now < backoff_until:
+            continue
+        try:
+            try:
+                s = now_playing()
+            except GLib.Error:
+                s = {'status': 'none'}
+            if s.get('art', '').startswith('/'):
+                s['art'] = ''  # a picture stored on this computer: the phone can't load it
+            sig = json.dumps([s.get(k) for k in RELAY_FIELDS])
+            playing = s.get('status') == 'playing'
+            jumped = False
+            if pushed_pos and s.get('status') != 'none':
+                p, at, was_playing = pushed_pos
+                jumped = abs(p + (now - at if was_playing else 0) - s.get('position', 0)) > 3
+            heartbeat = s.get('status') != 'none' and now - last_push > 600
+            if (sig != last_sig or jumped or heartbeat) and now - last_push > 1:
+                worker('PUT', '/music', {k: s.get(k) for k in (*RELAY_FIELDS, 'position')})
+                last_sig, last_push, pushed_pos = sig, now, (s.get('position', 0), now, playing)
+                with relay_lock:
+                    relay_status.update(ok=True, error='', sent=int(now))
+
+            if now >= next_inbox:
+                inbox = worker('GET', '/music/inbox')
+                cmds = sorted(inbox.get('cmds') or [], key=lambda c: c.get('id', 0))
+                if last_id is None:  # just started: don't replay what was tapped before
+                    last_id = max([c.get('id', 0) for c in cmds] + [0])
+                new = [c for c in cmds if c.get('id', 0) > last_id]
+                if new:
+                    last_id = new[-1]['id']
+                    vols = [c for c in new if c.get('cmd') == 'volume']
+                    for c in [c for c in new if c.get('cmd') != 'volume'] + vols[-1:]:  # only the last volume counts
+                        try:
+                            run_command(c)
+                        except (GLib.Error, RuntimeError, OSError, ValueError, TypeError, subprocess.SubprocessError):
+                            pass
+                    time.sleep(0.3)
+                    last_sig = None  # send the result right away
+                    relay_wake.set()
+                watching = (inbox.get('watch') or 0) > (inbox.get('now') or 0)
+                next_inbox = now + (1 if watching else 5 if s.get('status') != 'none' else 30)
+        except Exception as e:  # offline, sync server down or over its daily limit: try again in a minute
+            with relay_lock:
+                relay_status.update(ok=False, error=str(e) or e.__class__.__name__)
+            backoff_until = time.time() + 60
 
 
-def app_file(path):
-    """The phone page loads the app's player code through us (it can't reach the app's https address from an http page reliably)."""
-    hit = app_cache.get(path)
-    if hit and time.time() - hit[2] < 300:
-        return hit[0], hit[1]
-    try:
-        with urllib.request.urlopen(urllib.parse.urljoin(remote['app'], path), timeout=8) as r:
-            data, ctype = r.read(), r.headers.get('Content-Type') or mimetypes.guess_type(path)[0] or 'application/octet-stream'
-    except Exception:
-        return (hit[0], hit[1]) if hit else (None, None)  # offline: an old copy is better than nothing
-    app_cache[path] = (data, ctype, time.time())
-    return data, ctype
-
-
-REMOTE_PAGE = '''<!doctype html>
-<html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#15161d">
-<meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="apple-mobile-web-app-title" content="Now playing">
-<title>Now playing</title>
-<link rel="manifest" href="/remote.webmanifest{query}"><link rel="icon" href="/app/icons/icon.svg"><link rel="apple-touch-icon" href="/app/icons/apple-touch-icon.png">
-<link rel="stylesheet" href="/app/css/app.css">
-<style>html, body { margin: 0; background: #15161d; color: #fff; color-scheme: dark; }</style>
-</head><body class="np-remote">{keep_key}
-<script type="module" src="/app/js/remote.js"></script>
-<noscript><p style="padding:24px;font:16px system-ui">Turn on JavaScript to use the remote.</p></noscript>
-</body></html>'''
-
-
-
-def key_ok(key):
-    return bool(remote['enabled'] and remote['token'] and key) and hmac.compare_digest(key.encode(), remote['token'].encode())
-
-
-def remote_page(key):
-    """With a valid key in the address, the home-screen start address carries it too. Home-screen apps
-    don't share storage with the browser on iPhone, so a key saved by the browser isn't there."""
-    if not key_ok(key):
-        return REMOTE_PAGE.replace('{query}', '').replace('{keep_key}', '')
-    keep = f'<script>try {{ localStorage.setItem("ppp-remote-key", {json.dumps(key)}); }} catch (e) {{}}</script>'
-    return REMOTE_PAGE.replace('{query}', f'?k={urllib.parse.quote(key)}').replace('{keep_key}', keep)
-
-
-def remote_manifest(key):
-    return json.dumps({
-        'name': 'Now playing', 'short_name': 'Now playing', 'id': '/remote', 'scope': '/', 'display': 'fullscreen',
-        'start_url': f'/remote?k={urllib.parse.quote(key)}' if key_ok(key) else '/remote',
-        'background_color': '#15161d', 'theme_color': '#15161d',
-        'icons': [{'src': '/app/icons/icon-192.png', 'sizes': '192x192', 'type': 'image/png'},
-                  {'src': '/app/icons/icon-512.png', 'sizes': '512x512', 'type': 'image/png'}],
-    })
+def relay_goodbye():
+    """Tell the phone nothing is playing when the helper stops (computer shutting down, logging out)."""
+    if relay['url']:
+        try:
+            worker('PUT', '/music', {'status': 'none'})
+        except Exception:
+            pass
 
 
 # ---------- HTTP ----------
@@ -467,9 +472,6 @@ class Handler(BaseHTTPRequestHandler):
     def origin_allowed(self):
         o = self.headers.get('Origin')
         return o is None or bool(LOCAL_ORIGIN.fullmatch(o)) or o in self.extra_origins
-
-    def allowed(self):
-        return self.origin_allowed()
 
     def send(self, code, body=b'', ctype='application/json', cache='no-store'):
         self.send_response(code)
@@ -495,8 +497,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send(204 if self.origin_allowed() else 403, ctype='text/plain')
 
     def do_GET(self):
-        if not self.allowed():
-            return self.json({'error': 'not allowed'}, 403)
+        if not self.origin_allowed():
+            return self.json({'error': 'origin not allowed'}, 403)
         path = self.path.split('?')[0]
         try:
             if path == '/now-playing':
@@ -505,16 +507,16 @@ class Handler(BaseHTTPRequestHandler):
                 data, mime = art_file()
                 return self.send(200, data, mime) if data else self.send(404, ctype='text/plain')
             if path == '/':
-                return self.json({'app': 'productivitypp-now-playing', 'ok': True, 'remote': True})
-            if path == '/remote/info':
-                return self.json(remote_info())
+                return self.json({'app': 'productivitypp-now-playing', 'ok': True, 'relay': True})
+            if path == '/relay/info':
+                return self.json(relay_info())
         except GLib.Error as e:
             return self.json({'error': e.message}, 500)
         self.json({'error': 'not found'}, 404)
 
     def do_POST(self):
-        if not self.allowed():
-            return self.json({'error': 'not allowed'}, 403)
+        if not self.origin_allowed():
+            return self.json({'error': 'origin not allowed'}, 403)
         path = self.path.split('?')[0]
         if path == '/volume':
             try:
@@ -524,8 +526,8 @@ class Handler(BaseHTTPRequestHandler):
             except (GLib.Error, RuntimeError, OSError, subprocess.SubprocessError) as e:
                 return self.json({'error': f'Couldn\'t change the volume: {getattr(e, "message", e)}'}, 500)
             return self.json({'ok': True})
-        if path in ('/remote/enable', '/remote/disable'):
-            return self.remote_setup(path.endswith('enable'))
+        if path in ('/relay/enable', '/relay/disable'):
+            return self.relay_setup(path.endswith('enable'))
         m = re.fullmatch(r'/control/([a-z-]+)', path)
         if not m or m.group(1) not in COMMANDS:
             return self.json({'error': 'unknown command'}, 404)
@@ -538,68 +540,43 @@ class Handler(BaseHTTPRequestHandler):
             return self.json({'error': e.message}, 500)
         self.json({'ok': True})
 
-    def remote_setup(self, on):
+    def body(self):
+        n = int(self.headers.get('Content-Length') or 0)
+        try:
+            return json.loads(self.rfile.read(min(n, 10000)) or b'{}')
+        except ValueError:
+            return {}
+
+    def relay_setup(self, on):
         if on:
-            # the app tells us its own address, so the phone page can load the player from it
-            app = self.query().get('app', [''])[0]
-            u = urllib.parse.urlparse(app)
-            origin = f'{u.scheme}://{u.netloc}'
-            if u.scheme not in ('http', 'https') or (self.headers.get('Origin') and self.headers['Origin'] != origin):
-                return self.json({'error': 'bad app address'}, 400)
-            remote.update(enabled=True, app=app if app.endswith('/') else app + '/', token=remote['token'] or secrets.token_urlsafe(24))
-            app_cache.clear()
-            save_remote()
-            start_remote()
+            # the app hands over its sync server address and token (sent as text/plain JSON: no preflight)
+            b = self.body()
+            url, token = str(b.get('url') or '').strip().rstrip('/'), str(b.get('token') or '')
+            if not (url.startswith('https://') or LOCAL_ORIGIN.match(url)) or not token:  # http only for a local test server
+                return self.json({'error': 'Set up sync first (Settings → Sync & background push).'}, 400)
+            try:
+                worker('GET', '/music', url=url, token=token)
+            except Exception as e:
+                return self.json({'error': str(e)}, 502)
+            relay.update(url=url, token=token)
         else:
-            remote.update(enabled=False, token='')  # a new key next time: old links stop working
-            save_remote()
-            stop_remote()
-        self.json(remote_info())
+            relay_goodbye()
+            relay.update(url='', token='')
+        save_relay()
+        with relay_lock:
+            relay_status.update(ok=on, error='', sent=0)
+        relay_wake.set()
+        self.json(relay_info())
 
 
-class RemoteHandler(Handler):
-    """The phone remote, reachable from the local network: everything but the page itself needs the key."""
-    PUBLIC = {'/remote', '/remote.webmanifest'}
-
-    def origin_allowed(self):
-        return False  # same-origin page: no CORS headers for anyone
-
-    def allowed(self):
-        path = self.path.split('?')[0]
-        if path in self.PUBLIC or path.startswith('/app/'):
-            return True
-        return key_ok(self.headers.get('X-Key') or self.query().get('k', [''])[0])
-
-    def do_OPTIONS(self):
-        self.send(403, ctype='text/plain')
-
-    def do_GET(self):
-        path = self.path.split('?')[0]
-        if path == '/remote':
-            return self.send(200, remote_page(self.query().get('k', [''])[0]).encode(), 'text/html; charset=utf-8', 'no-store')
-        if path == '/remote.webmanifest':
-            return self.send(200, remote_manifest(self.query().get('k', [''])[0]).encode(), 'application/manifest+json', 'no-store')
-        if path.startswith('/app/'):
-            rel = path[5:]
-            if not APP_FILE.fullmatch(rel) or not remote['app']:
-                return self.send(404, ctype='text/plain')
-            data, ctype = app_file(rel)
-            return self.send(200, data, ctype, 'no-cache') if data else self.send(502, ctype='text/plain')
-        if path.startswith('/remote/'):
-            return self.json({'error': 'not found'}, 404)
-        super().do_GET()
-
-    def do_POST(self):
-        if self.path.split('?')[0].startswith('/remote/'):
-            return self.json({'error': 'not found'}, 404)
-        super().do_POST()
+def stop(*_):
+    raise KeyboardInterrupt
 
 
 def main():
-    global look_up_covers, remote_port
+    global look_up_covers
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--port', type=int, default=8971)
-    ap.add_argument('--remote-port', type=int, default=8972, help='port for the phone remote (only used once it\'s turned on in the app)')
     ap.add_argument('--origin', action='append', default=[],
                     help='web address of your app, e.g. https://you.github.io (localhost is always allowed)')
     ap.add_argument('--ignore', action='append', default=[],
@@ -609,18 +586,19 @@ def main():
     args = ap.parse_args()
     ignored.extend(i.lower() for i in args.ignore)
     look_up_covers = not args.no_covers
-    remote_port = args.remote_port
     Handler.extra_origins = {o.rstrip('/') for o in args.origin}
     server = ThreadingHTTPServer(('127.0.0.1', args.port), Handler)
     server.daemon_threads = True
     print(f'Now-playing helper on http://127.0.0.1:{args.port} (apps allowed: localhost{"".join(", " + o for o in sorted(Handler.extra_origins))})', flush=True)
-    load_remote()
-    if remote['enabled'] and remote['token']:
-        start_remote()
+    load_relay()
+    threading.Thread(target=relay_loop, daemon=True).start()
+    signal.signal(signal.SIGTERM, stop)  # systemd stopping us: tell the phone first (see finally)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
+    finally:
+        relay_goodbye()
 
 
 if __name__ == '__main__':

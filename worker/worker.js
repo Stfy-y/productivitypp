@@ -16,6 +16,10 @@
  *   GET  /due                -> notifications due in the last few minutes (the service worker calls this on push)
  *   POST /test-push          -> send a test push to every device
  *   GET  /widget[?format=html] -> today's summary for home-screen widgets
+ *   GET  /music              -> the song playing on the computer (sent by the now-playing helper), + age in ms
+ *   PUT  /music              -> the helper sends the current song (only when something changes)
+ *   POST /music/cmd          -> the phone's taps { cmd: play-pause|next|previous|volume|watch, v }
+ *   GET  /music/inbox        -> the helper picks those up
  *   /gcal/*                  -> Google Calendar (status, auth-url, callback, calendars, prefs, events, task, disconnect)
  *
  * Google Calendar (optional) secrets: GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET. See README.md.
@@ -438,6 +442,35 @@ async function gRoute(path, req, env, url) {
   throw new HttpError(404, 'not found');
 }
 
+/* ---------- Now playing: computer -> phone ---------- */
+// KV's free plan allows 1,000 writes a day, so the helper only writes when the song changes, and the
+// phone writes once per tap (and a "watching" note when its full-screen player opens, so the helper
+// checks for taps every second instead of every few seconds).
+const MUSIC_CMDS = ['play-pause', 'next', 'previous', 'volume', 'watch'];
+async function musicRoute(path, req, env) {
+  if (path === '/music' && req.method === 'GET') {
+    const m = (await env.KV.get('music', 'json')) || { status: 'none', at: Date.now() };
+    return json({ ...m, age: Math.max(0, Date.now() - (m.at || 0)) });
+  }
+  if (path === '/music' && req.method === 'PUT') {
+    const body = await req.json();
+    await env.KV.put('music', JSON.stringify({ ...body, at: Date.now() }));
+    return json({ ok: true });
+  }
+  if (path === '/music/cmd' && req.method === 'POST') {
+    const { cmd, v } = await req.json();
+    if (!MUSIC_CMDS.includes(cmd)) return json({ error: 'unknown command' }, 400);
+    const now = Date.now();
+    const inbox = (await env.KV.get('music-inbox', 'json')) || { cmds: [] };
+    const cmds = (inbox.cmds || []).filter((c) => now - c.at < 60000);
+    if (cmd !== 'watch') cmds.push({ id: Math.max(now, ...cmds.map((c) => c.id + 1)), cmd, v: cmd === 'volume' ? Math.max(0, Math.min(1, Number(v) || 0)) : undefined, at: now });
+    await env.KV.put('music-inbox', JSON.stringify({ cmds: cmds.slice(-20), watch: now + 120000 }));
+    return json({ ok: true });
+  }
+  if (path === '/music/inbox') return json({ cmds: [], watch: 0, ...((await env.KV.get('music-inbox', 'json')) || {}), now: Date.now() });
+  return json({ error: 'not found' }, 404);
+}
+
 /* ---------- Router ---------- */
 export default {
   async fetch(req, env) {
@@ -499,6 +532,7 @@ export default {
       if (url.searchParams.get('format') === 'html') return new Response(widgetHtml(d), { headers: { 'Content-Type': 'text/html; charset=utf-8', ...CORS } });
       return json(d);
     }
+    if (path.startsWith('/music')) return musicRoute(path, req, env);
     if (path.startsWith('/gcal/')) {
       try { return await gRoute(path, req, env, url); } catch (e) { return json({ error: e.message }, e.status || 500); }
     }

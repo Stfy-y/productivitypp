@@ -873,7 +873,7 @@ a.wx-loc:hover { color: var(--accent); }
 @property --np-c2 { syntax: '<color>'; inherits: true; initial-value: #5b3a5c; }
 @property --np-c3 { syntax: '<color>'; inherits: true; initial-value: #2f4a5c; }
 @property --np-c4 { syntax: '<color>'; inherits: true; initial-value: #15161d; }
-.npf-open, .npf-open body { overflow: hidden; }
+.npf-open, .npf-open body { overflow: hidden; overscroll-behavior: none; }
 .npf {
   position: fixed; inset: 0; z-index: 150; color: #fff; display: grid; place-items: center; overflow: hidden; isolation: isolate;
   padding: calc(var(--safe-t) + 56px) 24px calc(var(--safe-b) + 40px);
@@ -995,9 +995,13 @@ a.wx-loc:hover { color: var(--accent); }
 .npf-flash.show { opacity: 1; transform: translate(-50%, 0); }
 
 @media (max-aspect-ratio: 1/1), (max-width: 760px) {
-  .npf { place-items: safe center; padding: calc(var(--safe-t) + 64px) 24px calc(var(--safe-b) + 28px); overflow-y: auto; touch-action: pan-y; }
+  /* fixed, never scrolls: the cover takes whatever height the text and controls leave */
+  .npf { padding: calc(var(--safe-t) + 64px) 24px calc(var(--safe-b) + 24px); overflow: hidden; touch-action: none; overscroll-behavior: none; }
   .npf-clock { left: 20px; top: calc(var(--safe-t) + 16px); }
-  .npf-body { --cover: min(82vw, 42dvh, 460px); width: min(100%, 460px); grid-template-columns: minmax(0, 1fr); justify-items: center; gap: clamp(18px, 3.5dvh, 40px); }
+  .npf-body {
+    --cover: clamp(120px, calc(100dvh - var(--safe-t) - var(--safe-b) - 470px), min(82vw, 460px));
+    width: min(100%, 460px); grid-template-columns: minmax(0, 1fr); justify-items: center; gap: clamp(14px, 3dvh, 36px);
+  }
   .npf-meta { width: 100%; text-align: center; align-items: center; }
   .npf-meta > :is(.npf-progress, .npf-vol) { align-self: stretch; }
   .npf-vol { max-width: none; }
@@ -1011,9 +1015,16 @@ a.wx-loc:hover { color: var(--accent); }
   /* the cover sways less on small screens */
   @keyframes npf-sway { 0%, 100% { transform: none; } 50% { transform: translateY(-6px); } }
 }
-@media (max-width: 760px) and (max-height: 640px) {
-  .npf-body { --cover: min(60vw, 32dvh); }
-  .npf-progress { margin-top: 14px; }
+@media (max-width: 760px) and (max-height: 700px) {
+  .npf { padding-top: calc(var(--safe-t) + 56px); padding-bottom: calc(var(--safe-b) + 14px); }
+  .npf-body { --cover: clamp(96px, calc(100dvh - var(--safe-t) - var(--safe-b) - 400px), min(70vw, 300px)); gap: 12px; }
+  .npf-title { font-size: 22px; }
+  .npf-artist { font-size: 16px; margin-top: 6px; }
+  .npf-progress { margin-top: 12px; }
+  .npf-ctl { margin-top: 8px; }
+  .npf-ctl .icon-btn { width: 52px; height: 52px; }
+  .npf-ctl .npf-play { width: 66px; height: 66px; }
+  .npf-vol { margin-top: 8px; }
 }
 /* phones held sideways: cover beside the text again */
 @media (max-height: 500px) and (orientation: landscape) {
@@ -1037,15 +1048,38 @@ a.wx-loc:hover { color: var(--accent); }
   .npf, .npf-cover img, .npf-ph { transition: none; animation: none; }
 }
 
-/* Phone remote pairing (Settings → Now playing) */
-.remote-h { display: flex; align-items: center; gap: 8px; margin: 18px 0 4px; padding-top: 14px; border-top: 1px solid var(--line); font-size: 15px; }
-.remote-h svg { width: 18px; height: 18px; color: var(--muted); }
-.remote-pair { display: flex; gap: 16px; align-items: center; margin: 8px 0; }
-.remote-pair p { margin: 0 0 6px; }
-.remote-pair code { font-size: 12px; user-select: all; }
-.qr { width: 148px; flex: none; aspect-ratio: 1; border-radius: 12px; overflow: hidden; background: #fff; }
-.qr svg { display: block; width: 100%; height: 100%; }
-@media (max-width: 520px) { .remote-pair { flex-direction: column; align-items: flex-start; } }
+/* Now playing → On your phone (Settings) */
+.np-phone-h { margin: 18px 0 4px; padding-top: 14px; border-top: 1px solid var(--line); font-size: 15px; }
+
+/* Mini player (phone): the computer's song above the tab bar */
+#mini-np {
+  position: fixed; z-index: 12; left: 10px; right: 10px; bottom: calc(var(--tabbar-h) + var(--safe-b) + 8px);
+  display: flex; align-items: center; gap: 4px; padding: 6px 6px 6px 6px; border-radius: 14px; overflow: hidden;
+  background: color-mix(in srgb, var(--surface) 88%, transparent); backdrop-filter: blur(18px) saturate(1.4); -webkit-backdrop-filter: blur(18px) saturate(1.4);
+  box-shadow: 0 8px 28px -10px rgb(0 0 0 / .35), 0 0 0 1px var(--line);
+}
+#mini-np[hidden] { display: none; }
+.mnp-open { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 0; border: 0; background: none; color: inherit; text-align: left; cursor: pointer; font: inherit; }
+.mnp-art { width: 44px; height: 44px; flex: none; border-radius: 9px; overflow: hidden; display: grid; place-items: center; background: var(--surface-2); color: var(--faint); }
+.mnp-art img { width: 100%; height: 100%; object-fit: cover; }
+.mnp-art svg { width: 20px; height: 20px; }
+.mnp-text { display: flex; flex-direction: column; min-width: 0; }
+.mnp-text b { font-size: 14.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mnp-text small { font-size: 12.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mnp-play { width: 44px; height: 44px; flex: none; color: var(--text); }
+.mnp-play svg { width: 22px; height: 22px; }
+.mnp-play:disabled { opacity: .35; }
+.mnp-prog { position: absolute; left: 12px; right: 12px; bottom: 0; height: 2px; border-radius: 2px; background: color-mix(in srgb, var(--text) 10%, transparent); overflow: hidden; }
+.mnp-prog span { display: block; height: 100%; background: var(--accent); transition: width 1s linear; }
+body.has-mini-np #fab { bottom: calc(var(--tabbar-h) + var(--safe-b) + 84px); }
+body.has-mini-np #main { padding-bottom: calc(var(--tabbar-h) + var(--safe-b) + 150px); }
+body.has-mini-np #toast { bottom: calc(var(--tabbar-h) + var(--safe-b) + 150px); }
+@media (min-width: 900px) {
+  #mini-np { left: auto; right: 104px; bottom: 28px; width: 340px; }
+  body.has-mini-np #main { padding-bottom: 96px; }
+  body.has-mini-np #fab { bottom: 28px; }
+  body.has-mini-np #toast { bottom: 96px; }
+}
 
 .dash-music.hint .mu { gap: 12px; }
 .dash-music.hint .mu-info { flex: 1; }

@@ -6,6 +6,7 @@ This **optional** Cloudflare Worker adds:
 - **Sync** between your phone and laptop
 - **Push notifications when the app is closed** (task reminders and habit reminders)
 - **Widget data** for home-screen widgets (iOS Scriptable, Android web widgets)
+- **Now playing on your phone**: the song playing on your Linux computer, with controls (needs the [now-playing helper](../extras/now-playing/))
 
 It runs on Cloudflare's **free plan**. One person's usage stays far below the free limits.
 

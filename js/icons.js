@@ -43,6 +43,5 @@ export const ICONS = {
   volume: p('<path d="M11 5 6 9H2v6h4l5 4z" fill="currentColor"/><path d="M15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14"/>'),
   'volume-low': p('<path d="M11 5 6 9H2v6h4l5 4z" fill="currentColor"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/>'),
   mute: p('<path d="M11 5 6 9H2v6h4l5 4z" fill="currentColor"/><path d="m22 9-6 6M16 9l6 6"/>'),
-  phone: p('<rect x="6" y="2" width="12" height="20" rx="3"/><path d="M11 18h2"/>'),
 };
 export const icon = (name) => ICONS[name] || '';
