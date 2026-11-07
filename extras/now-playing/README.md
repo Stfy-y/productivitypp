@@ -7,7 +7,7 @@ Browsers can't see your desktop's media players, so a small helper (`now-playing
 
 - It only listens on your own computer, not your network (unless you turn on the phone remote, see below).
 - Only `localhost` and the app's web address may read it or press its buttons. Other websites get refused.
-- **Album covers:** YouTube Music players often report the music video's 16:9 thumbnail. The helper then asks YouTube Music for the song's square album cover (it sends the song's title and artist, or its video ID). If the song isn't on YouTube Music, the thumbnail stays. Turn this off with `--no-covers`.
+- **Album covers and names:** YouTube Music players often report the music video's 16:9 thumbnail, and YouTube Music Desktop can keep reporting an old album name for every track. The helper then asks YouTube Music for the song's square cover and real album (it sends the song's title and artist, or its video ID). If the song isn't on YouTube Music (an uploaded video, say), the thumbnail stays and no album is shown. Turn this off with `--no-covers`.
 - **Volume** changes the player's own volume when it has one (YouTube Music Desktop, Spotify, VLC...). Otherwise it changes the computer's output volume (`wpctl` or `pactl`).
 
 ## Set it up
@@ -29,7 +29,7 @@ Open **Settings → Now playing** on the computer and click **Set up phone remot
 
 - The phone and the computer need to be on the same Wi-Fi.
 - The helper then also listens on port **8972** on your local network. Every request needs the secret key from the QR code, except the empty page shell. Anyone who has the link and is on your Wi-Fi can control your music, so only share it with your own devices.
-- Using a firewall? Allow the port: `sudo ufw allow 8972/tcp`.
+- Ubuntu's firewall (ufw) blocks the phone until you let your home network in, e.g. `sudo ufw allow from 192.168.0.0/24 to any port 8972 proto tcp` (use your own network's first three numbers; Settings shows the exact command). Guest Wi-Fi networks often keep devices apart, so use the main one.
 - **Turn off phone remote** closes the port and changes the key, so old links stop working.
 - The phone page loads the player's code from the app's web address through the helper, so it always matches the app.
 

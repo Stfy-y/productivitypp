@@ -96,16 +96,19 @@ def identity(name):
         return name[len(PREFIX):].split('.')[0]
 
 
-# ---------- Album covers from YouTube Music ----------
-# YouTube Music players often report the music video's 16:9 thumbnail. The square album cover is
-# on YouTube Music itself: ask for the track's audio version, or search for the song.
+# ---------- Album covers & album names from YouTube Music ----------
+# YouTube Music players often report the music video's 16:9 thumbnail, and YouTube Music Desktop can
+# keep reporting an old album name for every track. The square cover and the real album are on
+# YouTube Music itself: look up the track's audio version, or search for the song.
 YTM = 'https://music.youtube.com/youtubei/v1/'
 YTM_CLIENT = {'client': {'clientName': 'WEB_REMIX', 'clientVersion': '1.20241106.01.00', 'hl': 'en'}}
 YTM_SONGS = 'EgWKAQIIAWoKEAkQBRAKEAMQBA%3D%3D'  # search filter: songs only
 VIDEO_ID = re.compile(r'[A-Za-z0-9_-]{11}')
-covers = {}  # (title, artist) -> (url or '', retry after); '' means "keep the player's art"
-cover_waits = {}  # (title, artist) -> Event set when the lookup finishes
-cover_lock = threading.Lock()
+# (title, artist) -> (cover or '', album or None, retry after). '' cover: keep the player's picture.
+# None album: unknown, keep the player's; '' album: it's a video, not on an album.
+lookups = {}
+lookup_waits = {}  # (title, artist) -> Event set when the lookup finishes
+lookup_lock = threading.Lock()
 
 
 def ytm(endpoint, body):
@@ -119,15 +122,6 @@ def ytm(endpoint, body):
 def large(url):
     """Google image URLs carry their size at the end (=w60-h60-...): ask for a big one."""
     return re.sub(r'=w\d+-h\d+[^/]*$', '=w1200-h1200-l90-rj', url) if 'googleusercontent.com' in url else ''
-
-
-def cover_of_video(video_id):
-    """The cover, if this video is a song's audio track (those carry the album art as thumbnail)."""
-    d = ytm('player', {'videoId': video_id}).get('videoDetails') or {}
-    if d.get('musicVideoType') != 'MUSIC_VIDEO_TYPE_ATV':
-        return ''
-    thumbs = (d.get('thumbnail') or {}).get('thumbnails') or []
-    return large(thumbs[-1].get('url', '')) if thumbs else ''
 
 
 def norm(s):
@@ -145,15 +139,36 @@ def renderers(o, key):
             yield from renderers(v, key)
 
 
-def cover_by_search(title, artist):
+def album_in(runs):
+    """The album link in a byline like "Artist • Album • 2026"."""
+    for x in runs or []:
+        page = (x.get('navigationEndpoint', {}).get('browseEndpoint', {})
+                .get('browseEndpointContextSupportedConfigs', {}).get('browseEndpointContextMusicConfig', {}).get('pageType'))
+        if page == 'MUSIC_PAGE_TYPE_ALBUM':
+            return x.get('text', '')
+    return None
+
+
+def song_of_video(video_id):
+    """(cover, album) if this video is a song's audio track (those carry the album art), else None."""
+    for r in renderers(ytm('next', {'videoId': video_id}), 'playlistPanelVideoRenderer'):
+        if r.get('videoId') != video_id:
+            continue
+        cover = large(((r.get('thumbnail') or {}).get('thumbnails') or [{}])[-1].get('url', ''))
+        album = album_in((r.get('longBylineText') or {}).get('runs'))
+        return (cover, album) if cover else None
+    return None
+
+
+def song_by_search(title, artist):
     first_artist = norm(re.split(r',|&| feat\.? | x ', artist or '')[0])
     d = ytm('search', {'query': f'{title} {artist}'.strip(), 'params': YTM_SONGS})
     for i, r in enumerate(renderers(d, 'musicResponsiveListItemRenderer')):
         if i >= 5:
             break
         try:
-            cols = [' '.join(x['text'] for x in c['musicResponsiveListItemFlexColumnRenderer']['text'].get('runs', []))
-                    for c in r['flexColumns']]
+            runs = [c['musicResponsiveListItemFlexColumnRenderer']['text'].get('runs', []) for c in r['flexColumns']]
+            cols = [' '.join(x['text'] for x in rs) for rs in runs]
             thumbs = r['thumbnail']['musicThumbnailRenderer']['thumbnail']['thumbnails']
         except (KeyError, TypeError):
             continue
@@ -162,8 +177,8 @@ def cover_by_search(title, artist):
             continue
         if first_artist and first_artist not in norm(cols[1] if len(cols) > 1 else ''):
             continue
-        return large(thumbs[-1].get('url', ''))
-    return ''
+        return large(thumbs[-1].get('url', '')), album_in(runs[1] if len(runs) > 1 else [])
+    return None
 
 
 def video_ids(meta, art):
@@ -178,43 +193,46 @@ def video_ids(meta, art):
     return ids
 
 
-def find_cover(key, ids):
-    url, retry = '', float('inf')
+def look_up(key, ids):
+    found, retry = None, float('inf')
     try:
         for vid in ids:
-            url = cover_of_video(vid)
-            if url:
+            found = song_of_video(vid)
+            if found:
                 break
-        if not url:
-            url = cover_by_search(*key)
-    except Exception:  # offline, or YouTube changed something: keep the player's art, try again later
-        url, retry = '', time.time() + 120
-    with cover_lock:
-        if len(covers) > 500:
-            covers.clear()
-        covers[key] = (url, retry)
-        cover_waits.pop(key).set()
+        found = found or song_by_search(*key)
+        if not found:
+            found = ('', '')  # not a song on YouTube Music (e.g. an uploaded video): no album
+    except Exception:  # offline, or YouTube changed something: keep the player's info, try again later
+        found, retry = ('', None), time.time() + 120
+    with lookup_lock:
+        if len(lookups) > 500:
+            lookups.clear()
+        lookups[key] = (found[0], found[1], retry)
+        lookup_waits.pop(key).set()
 
 
-def better_cover(name, meta, art):
-    """A square YouTube Music cover instead of a video thumbnail, when there is one."""
-    youtubeish = 'ytimg.com/' in art or (not art and re.search(r'youtube|ytm', name, re.I))
-    if not look_up_covers or not youtubeish:
-        return art
+def from_youtube_music(name, meta, art, album):
+    """(art, album), corrected from YouTube Music for YouTube players."""
+    if not look_up_covers or not ('ytimg.com/' in art or re.search(r'youtube|ytm', name, re.I)):
+        return art, album
     artist = meta.get('xesam:artist') or []
     key = (meta.get('xesam:title', ''), ', '.join(artist) if isinstance(artist, list) else str(artist))
-    with cover_lock:
-        hit = covers.get(key)
-        if hit and hit[1] > time.time():
-            return hit[0] or art
-        wait = cover_waits.get(key)
-        if not wait:
-            wait = cover_waits[key] = threading.Event()
-            threading.Thread(target=find_cover, args=(key, video_ids(meta, art)), daemon=True).start()
-    wait.wait(1.5)  # usually quick: avoids showing the thumbnail for a moment first
-    with cover_lock:
-        hit = covers.get(key)
-    return (hit and hit[0]) or art
+    with lookup_lock:
+        hit = lookups.get(key)
+        if not (hit and hit[2] > time.time()):
+            hit = None
+            wait = lookup_waits.get(key)
+            if not wait:
+                wait = lookup_waits[key] = threading.Event()
+                threading.Thread(target=look_up, args=(key, video_ids(meta, art)), daemon=True).start()
+    if not hit:
+        wait.wait(1.5)  # usually quick: avoids showing the thumbnail and old album for a moment first
+        with lookup_lock:
+            hit = lookups.get(key)
+    if not hit:
+        return art, album
+    return hit[0] or art, album if hit[1] is None else hit[1]
 
 
 # ---------- Volume ----------
@@ -285,14 +303,14 @@ def now_playing():
         art = '/art'  # local file: served by us, see art_file()
     elif not art.startswith(('https://', 'http://', 'data:image/')):
         art = ''
-    art = better_cover(name, m, art)
+    art, album = from_youtube_music(name, m, art, m.get('xesam:album', ''))
     artist = m.get('xesam:artist') or []
     return {
         'status': p.get('PlaybackStatus', '').lower(),
         'player': identity(name),
         'title': m.get('xesam:title', ''),
         'artist': ', '.join(artist) if isinstance(artist, list) else str(artist),
-        'album': m.get('xesam:album', ''),
+        'album': album,
         'art': art,
         'length': round((m.get('mpris:length') or 0) / 1e6, 1),
         'position': round((p.get('Position') or 0) / 1e6, 1),
@@ -359,7 +377,8 @@ def lan_addresses():
 
 
 def remote_info():
-    links = [f'http://{ip}:{remote_port}/remote#k={remote["token"]}' for ip in lan_addresses()] if remote['enabled'] else []
+    # the key goes in the address itself, so a home-screen icon made from it keeps working
+    links = [f'http://{ip}:{remote_port}/remote?k={remote["token"]}' for ip in lan_addresses()] if remote['enabled'] else []
     return {'enabled': remote['enabled'], 'running': remote_server is not None, 'links': links, 'port': remote_port}
 
 
@@ -405,20 +424,37 @@ REMOTE_PAGE = '''<!doctype html>
 <meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="apple-mobile-web-app-title" content="Now playing">
 <title>Now playing</title>
-<link rel="manifest" href="/remote.webmanifest"><link rel="icon" href="/app/icons/icon.svg"><link rel="apple-touch-icon" href="/app/icons/apple-touch-icon.png">
+<link rel="manifest" href="/remote.webmanifest{query}"><link rel="icon" href="/app/icons/icon.svg"><link rel="apple-touch-icon" href="/app/icons/apple-touch-icon.png">
 <link rel="stylesheet" href="/app/css/app.css">
 <style>html, body { margin: 0; background: #15161d; color: #fff; color-scheme: dark; }</style>
-</head><body class="np-remote">
+</head><body class="np-remote">{keep_key}
 <script type="module" src="/app/js/remote.js"></script>
 <noscript><p style="padding:24px;font:16px system-ui">Turn on JavaScript to use the remote.</p></noscript>
 </body></html>'''
 
-REMOTE_MANIFEST = json.dumps({
-    'name': 'Now playing', 'short_name': 'Now playing', 'start_url': '/remote', 'scope': '/', 'display': 'fullscreen',
-    'background_color': '#15161d', 'theme_color': '#15161d',
-    'icons': [{'src': '/app/icons/icon-192.png', 'sizes': '192x192', 'type': 'image/png'},
-              {'src': '/app/icons/icon-512.png', 'sizes': '512x512', 'type': 'image/png'}],
-})
+
+
+def key_ok(key):
+    return bool(remote['enabled'] and remote['token'] and key) and hmac.compare_digest(key.encode(), remote['token'].encode())
+
+
+def remote_page(key):
+    """With a valid key in the address, the home-screen start address carries it too. Home-screen apps
+    don't share storage with the browser on iPhone, so a key saved by the browser isn't there."""
+    if not key_ok(key):
+        return REMOTE_PAGE.replace('{query}', '').replace('{keep_key}', '')
+    keep = f'<script>try {{ localStorage.setItem("ppp-remote-key", {json.dumps(key)}); }} catch (e) {{}}</script>'
+    return REMOTE_PAGE.replace('{query}', f'?k={urllib.parse.quote(key)}').replace('{keep_key}', keep)
+
+
+def remote_manifest(key):
+    return json.dumps({
+        'name': 'Now playing', 'short_name': 'Now playing', 'id': '/remote', 'scope': '/', 'display': 'fullscreen',
+        'start_url': f'/remote?k={urllib.parse.quote(key)}' if key_ok(key) else '/remote',
+        'background_color': '#15161d', 'theme_color': '#15161d',
+        'icons': [{'src': '/app/icons/icon-192.png', 'sizes': '192x192', 'type': 'image/png'},
+                  {'src': '/app/icons/icon-512.png', 'sizes': '512x512', 'type': 'image/png'}],
+    })
 
 
 # ---------- HTTP ----------
@@ -532,8 +568,7 @@ class RemoteHandler(Handler):
         path = self.path.split('?')[0]
         if path in self.PUBLIC or path.startswith('/app/'):
             return True
-        key = self.headers.get('X-Key') or self.query().get('k', [''])[0]
-        return bool(remote['enabled'] and remote['token']) and hmac.compare_digest(key.encode(), remote['token'].encode())
+        return key_ok(self.headers.get('X-Key') or self.query().get('k', [''])[0])
 
     def do_OPTIONS(self):
         self.send(403, ctype='text/plain')
@@ -541,9 +576,9 @@ class RemoteHandler(Handler):
     def do_GET(self):
         path = self.path.split('?')[0]
         if path == '/remote':
-            return self.send(200, REMOTE_PAGE.encode(), 'text/html; charset=utf-8', 'no-cache')
+            return self.send(200, remote_page(self.query().get('k', [''])[0]).encode(), 'text/html; charset=utf-8', 'no-store')
         if path == '/remote.webmanifest':
-            return self.send(200, REMOTE_MANIFEST.encode(), 'application/manifest+json', 'no-cache')
+            return self.send(200, remote_manifest(self.query().get('k', [''])[0]).encode(), 'application/manifest+json', 'no-store')
         if path.startswith('/app/'):
             rel = path[5:]
             if not APP_FILE.fullmatch(rel) or not remote['app']:
@@ -570,7 +605,7 @@ def main():
     ap.add_argument('--ignore', action='append', default=[],
                     help='skip players whose bus name contains this, e.g. --ignore wasistlos')
     ap.add_argument('--no-covers', action='store_true',
-                    help='don\'t look up square album covers on YouTube Music (keeps the player\'s own picture)')
+                    help='don\'t look up square album covers and album names on YouTube Music (keeps what the player reports)')
     args = ap.parse_args()
     ignored.extend(i.lower() for i in args.ignore)
     look_up_covers = not args.no_covers

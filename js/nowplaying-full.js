@@ -281,7 +281,7 @@ export function updateNowPlaying() {
   setText('.npf-label', live ? `${playing ? 'Now playing' : 'Paused'}${s.player ? ` · ${s.player}` : ''}` : '');
   setText('.npf-title', live ? s.title : (s ? 'Nothing playing' : musicError || 'Connecting…'));
   setText('.npf-artist', live ? s.artist : (s ? `Start something in your music app${remoteMode ? ' on your computer' : ''}.` : ''));
-  setText('.npf-album', live && s.album && s.album !== s.artist ? s.album : '');
+  setText('.npf-album', live && s.album && ![s.artist, s.title].includes(s.album) ? s.album : ''); // singles: album = title
   root.querySelector('.npf-title').title = live ? s.title : '';
   applyArt(live ? artUrl(s) : '');
 

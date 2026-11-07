@@ -39,13 +39,16 @@ function remoteBlock() {
     ${link ? `<div class="remote-pair">
         <div class="qr" data-qr="${esc(link)}" role="img" aria-label="QR code for the phone remote"></div>
         <div class="small"><p>Scan this with your phone's camera. Then use <b>Add to Home Screen</b> to keep it one tap away.</p>
-          <p class="faint">Doesn't load? Check that the phone is on the same Wi-Fi, and allow the port if you use a firewall: <code>sudo ufw allow ${r.port}/tcp</code></p></div>
+          <p class="faint">Doesn't load? Check that the phone is on the same Wi-Fi (not a guest network), and let your home network through the firewall: <code>sudo ufw allow from ${esc(lanRange(link))} to any port ${r.port} proto tcp</code></p></div>
       </div>
       <div class="copy"><input readonly value="${esc(link)}" aria-label="Phone remote link"><button class="btn small" data-action="music-remote-copy">Copy</button></div>`
     : '<p class="warn small">⚠ This computer doesn\'t seem to be on a network.</p>'}
     <p class="small faint">The link contains a secret key: anyone with it on your Wi-Fi can control your music. Turning the remote off makes old links stop working.</p>
     <div class="row-actions"><button class="btn ghost" data-action="music-remote-off">Turn off phone remote</button></div>`;
 }
+
+/** "192.168.0.22" in the link -> "192.168.0.0/24", for a firewall rule that only lets the home network in. */
+const lanRange = (link) => { const m = /\/\/(\d+\.\d+\.\d+)\.\d+:/.exec(link); return m ? `${m[1]}.0/24` : '192.168.0.0/16'; };
 
 let qrLib = null;
 /** Draw QR codes for [data-qr] elements (the generator is only loaded when needed). */
