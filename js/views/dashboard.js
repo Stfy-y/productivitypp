@@ -535,8 +535,10 @@ export function fitDashboard() {
     dash.style.height = `${Math.floor(window.innerHeight - dash.getBoundingClientRect().top - 16)}px`;
     // Panels can sit in any column, so every column runs the same steps on whatever it holds
     for (const col of dash.querySelectorAll('.dash-col')) {
-      const rows = (g, root = col) => [...root.querySelectorAll(`[data-trim="${g}"]`)];
-      const flex = [...col.querySelectorAll(`:scope > :is(${FLEX_SEL})`)];
+      // rows inside a panel with a set height are trimmed to that panel only (hiding them can't shorten the column)
+      const rows = (g, root = col) => [...root.querySelectorAll(`[data-trim="${g}"]`)].filter((r) => root !== col || !r.closest('[data-size]'));
+      const flex = [...col.querySelectorAll(`:scope > :is(${FLEX_SEL}):not([data-size])`)];
+      const fixed = [...col.querySelectorAll(':scope > [data-size]')];
       // a flexible card is cramped when it's below its minimum and its content doesn't fit (the exams list scrolls inside)
       const cramped = (c) => c.clientHeight < flexMin(c) && (overflowing(c) || overflowing(c.querySelector('.dx-list')));
       const tight = () => overflowing(col) || flex.some(cramped);
@@ -550,8 +552,18 @@ export function fitDashboard() {
       for (const c of flex) {
         for (const g of OWN_ROWS[[...c.classList].find((k) => OWN_ROWS[k])] || []) trimWhile(rows(g, c), () => overflowing(c));
       }
-      // 3. last resort: the 5-day forecast down to 2 days
-      trimWhile(rows('wxdays'), () => overflowing(col) || flex.some(overflowing), 2);
+      // 3. cards you gave a height trim their own lists to it (what can't be trimmed scrolls inside the card)
+      for (const c of fixed) {
+        const past = rows('agenda-past', c);
+        for (let i = 0; i < past.length && overflowing(c); i++) past[i].hidden = true;
+        for (const g of ['agenda', 'nn', 'tasks', 'tomorrow', 'wa']) trimWhile(rows(g, c), () => overflowing(c));
+        trimWhile(rows('wxdays', c), () => overflowing(c), 2);
+      }
+      // 4. last resort: the 5-day forecast down to 2 days, only if that makes everything fit (otherwise keep all days)
+      const days = rows('wxdays');
+      const crowded = () => overflowing(col) || flex.some(overflowing);
+      trimWhile(days, crowded, 2);
+      if (crowded()) days.forEach((r) => { r.hidden = false; });
     }
   }
   if (fit) watchCards(dash);
@@ -565,7 +577,7 @@ export function fitDashboard() {
 
 /* ---------- Layout & edit mode ---------- */
 const DIRS = [['left', 'Move left', 'left'], ['up', 'Move up', 'up'], ['down', 'Move down', 'down'], ['right', 'Move right', 'right']];
-function editPanel(id, html, ci, i, colLen) {
+function editPanel(id, html, ci, i, colLen, size) {
   const p = PANELS[id];
   const can = { left: ci > 0, right: ci < COLS - 1, up: i > 0, down: i < colLen - 1 };
   const body = html || `<section class="card dash-empty"><h3>${icon(p.icon)} ${esc(p.title)}</h3><p class="small faint">Nothing to show right now. It appears when there is.</p></section>`;
@@ -575,12 +587,17 @@ function editPanel(id, html, ci, i, colLen) {
       <span class="dp-name">${esc(p.title)}</span>
       ${DIRS.map(([dir, label, ic]) => `<button class="icon-btn small dp-${dir}" data-action="dash-move" data-panel="${id}" data-dir="${dir}" aria-label="${label}: ${esc(p.title)}" title="${label}" ${can[dir] ? '' : 'disabled'}>${icon(ic)}</button>`).join('')}
       <button class="icon-btn small danger" data-action="dash-remove" data-panel="${id}" aria-label="Remove ${esc(p.title)}" title="Remove from the Dashboard">${icon('close')}</button>
-    </div>${body}</div>`;
+    </div>${body}
+    <div class="dp-resize" data-resize-panel="${id}" title="Drag to resize · double-click for automatic height">
+      <span class="dp-resize-bar"></span><small data-size-label>${size ? `${size} px` : 'Auto height'}</small></div></div>`;
 }
+
+/** A fixed height on a card: `data-size` + `--ph` on its <section> (CSS applies it on wider screens). */
+const sized = (html, h) => (h && html ? html.replace(/^\s*<section /, `<section data-size="${h}" style="--ph:${h}px" `) : html);
 
 function editTray(hidden) {
   return `<div class="card dash-tray">
-    <p><b>Editing the Dashboard.</b> Drag panels to move them${matchMedia('(pointer: coarse)').matches ? ' (hold the ⠿ handle)' : ''}, or use the arrows. <kbd>Esc</kbd> or <b>Done</b> when you're finished.</p>
+    <p><b>Editing the Dashboard.</b> Drag panels to move them${matchMedia('(pointer: coarse)').matches ? ' (hold the ⠿ handle)' : ''}, or use the arrows. Drag a panel's bottom edge to resize it, and the lines between columns to change their width. <kbd>Esc</kbd> or <b>Done</b> when you're finished.</p>
     <div class="dash-tray-add">${hidden.length
       ? `<span class="small faint">Add a panel:</span>${hidden.map((id) => `<button class="btn small" data-action="dash-add" data-panel="${id}">${icon('plus')} ${esc(PANELS[id].title)}</button>`).join('')}`
       : '<span class="small faint">Every panel is on the Dashboard. Remove one with its ✕.</span>'}</div>
@@ -606,12 +623,13 @@ export function renderDashboard() {
     whatsapp: whatsappCard,
     tomorrow: tomorrowCard,
   };
-  const { cols, hidden, custom } = layout();
+  const { cols, hidden, custom, sizes, widths } = layout();
   const editing = isEditing();
   const colHtml = (ids, ci) => (editing
-    ? `${ids.map((id, i) => editPanel(id, RENDER[id](), ci, i, ids.length)).join('')}<div class="dash-drop-end">Drop panels here</div>`
-    : ids.map((id) => RENDER[id]()).join(''));
-  return `${editing ? editTray(hidden) : ''}<div class="dash ${custom ? 'custom' : ''} ${editing ? 'editing' : ''}">
+    ? `${ids.map((id, i) => editPanel(id, sized(RENDER[id](), sizes[id]), ci, i, ids.length, sizes[id])).join('')}<div class="dash-drop-end">Drop panels here</div>
+       ${ci < COLS - 1 ? `<div class="dash-col-resize" data-resize-col="${ci}" title="Drag to change the column widths"></div>` : ''}`
+    : ids.map((id) => sized(RENDER[id](), sizes[id])).join(''));
+  return `${editing ? editTray(hidden) : ''}<div class="dash ${custom ? 'custom' : ''} ${editing ? 'editing' : ''}" style="${widths.map((w, k) => `--c${k + 1}:${w}fr`).join(';')}">
     ${cols.map((ids, ci) => `<div class="dash-col ${ci === 0 ? 'dash-main' : ''}" ${editing ? `data-col="${ci}" data-col-label="Column ${ci + 1}"` : ''}>${colHtml(ids, ci)}</div>`).join('')}
   </div>`;
 }

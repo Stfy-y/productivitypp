@@ -741,7 +741,8 @@ body[data-view="dashboard"] #view { max-width: 1640px; }
   .dash .card { margin: 0; }
 }
 @media (min-width: 1100px) {
-  .dash { grid-template-columns: 1.2fr 1fr 1fr; grid-template-rows: auto; }
+  /* column widths can be changed in edit mode (js/dashlayout.js sets --c1..--c3) */
+  .dash { grid-template-columns: var(--c1, 1.2fr) var(--c2, 1fr) var(--c3, 1fr); grid-template-rows: auto; }
   .dash-main { grid-row: auto; }
 }
 /* Fit mode (laptop-sized windows): the page doesn't scroll, js/views/dashboard.js trims lists to fit */
@@ -1221,3 +1222,31 @@ body.is-dragging, body.is-dragging * { cursor: grabbing !important; }
 .wa-bubble span { font-size: 14px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .wa-bubble time { align-self: flex-end; font-size: 11px; color: var(--faint); font-variant-numeric: tabular-nums; }
 .wa-thread > p, .wa-thread > .link { display: block; margin: 8px 0 0 46px; }
+
+/* Panels with a height set in edit mode (phones ignore it: one column, natural heights) */
+@media (min-width: 760px) {
+  .dash-col > .card[data-size], .dash-panel > .card[data-size] { height: var(--ph); max-height: none; overflow-y: auto; scrollbar-width: thin; }
+}
+/* a set height is the most a panel takes: if its column can't fit everything, sized panels shrink first
+   (and trim their own lists) instead of other panels losing content */
+body.dash-fit .dash-col > .card[data-size] { flex: 0 1 auto; min-height: 0; }
+/* exams: the list inside keeps scrolling within the set height */
+.card.dash-exams[data-size] { display: flex; flex-direction: column; overflow: hidden; }
+.card.dash-exams[data-size] > :not(.dx-list) { flex: none; }
+.card.dash-exams[data-size] .dx-list { flex: 1; min-height: 0; max-height: none; }
+
+/* Resize handles (edit mode) */
+.dp-resize { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 0 0; cursor: ns-resize; touch-action: none; color: var(--faint); }
+.dp-resize-bar { width: 44px; height: 5px; border-radius: 99px; background: var(--line); transition: background .15s, width .15s; }
+.dp-resize small { font-size: 11px; line-height: 1; font-variant-numeric: tabular-nums; }
+.dp-resize:hover .dp-resize-bar, body.is-resizing .dp-resize-bar { background: var(--accent); width: 64px; }
+.dash.editing .dash-col { position: relative; }
+.dash-col-resize { display: none; }
+@media (min-width: 1100px) {
+  .dash-col-resize { display: block; position: absolute; top: 0; bottom: 0; right: -12px; width: 10px; cursor: col-resize; touch-action: none; z-index: 2; border-radius: 99px; }
+  .dash-col-resize::after { content: ''; position: absolute; top: 50%; left: 3px; width: 4px; height: 56px; margin-top: -28px; border-radius: 99px; background: var(--line); transition: background .15s, height .15s; }
+  .dash-col-resize:hover::after, body.is-resizing .dash-col-resize::after { background: var(--accent); height: 96px; margin-top: -48px; }
+}
+@media (max-width: 759px) { .dp-resize { display: none; } }
+body.is-resizing, body.is-resizing * { user-select: none; }
+.dash-panel > .card[data-size] { -webkit-mask-image: none; mask-image: none; overflow: hidden; }
