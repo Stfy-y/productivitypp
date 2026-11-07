@@ -5,8 +5,9 @@ import { canNotify, canPush } from '../notify.js';
 import { calendars, loadCalendars } from '../gcal.js';
 import { locationForm } from './dashboard.js';
 import { musicError, installCommand, waitingForHelper, phoneInfo, ensurePhoneInfo, isLinuxDesktop, viaSync } from '../music.js';
+import { whatsApp, waError, waInstallCommand, waWaiting, ensureWhatsApp } from '../whatsapp.js';
 
-export const VERSION = '1.15.0';
+export const VERSION = '1.16.0';
 export const install = { prompt: null };
 
 const ago = (ts) => {
@@ -49,6 +50,36 @@ function musicOnPhoneCard() {
       : musicError && viaSync() ? `<p class="warn small">⚠ ${esc(musicError)}</p>` : ''}
     <label class="row"><span>Show music from my computer</span><span class="switch"><input type="checkbox" data-setting-bool="musicPhone" ${settings.musicPhone !== false ? 'checked' : ''}><span></span></span></label>
   </section>`;
+}
+
+/* ---------- WhatsApp (Linux computer with the helper) ---------- */
+function whatsappCard() {
+  const cmd = `<div class="copy"><input readonly value="${esc(waInstallCommand())}" aria-label="Setup command"><button class="btn small ${settings.whatsapp ? '' : 'primary'}" data-action="wa-copy">Copy</button></div>`;
+  const intro = '<p>Show your unread WhatsApp chats on the Dashboard: pinned chats first, then people, then groups, newest first. A small helper on this computer links to WhatsApp like WhatsApp Web does. It only reads: it never sends anything or marks messages as read.</p>';
+  let body;
+  if (settings.whatsapp) {
+    ensureWhatsApp();
+    const d = whatsApp();
+    const status = waError ? `<p class="warn small">⚠ ${esc(waError)} Run the setup command below again.</p>${cmd}`
+      : !d ? '<p class="small faint">Connecting…</p>'
+      : d.status === 'ready' ? `<p class="ok small">✓ Linked${d.me ? ` as <b>${esc(d.me)}</b>` : ''}. Look for it on the Dashboard.</p>`
+      : d.status === 'qr' ? '<p class="small">Almost there: scan the code on the <a href="#/dashboard">Dashboard</a> with WhatsApp on your phone (<b>Settings → Linked devices → Link a device</b>).</p>'
+      : d.status === 'error' ? `<p class="warn small">⚠ ${esc(d.error)}</p>`
+      : '<p class="small faint">WhatsApp is starting…</p>';
+    body = `${status}
+      <div class="row-actions">${d?.status === 'ready' ? '<button class="btn ghost danger" data-action="wa-logout">Unlink from WhatsApp</button>' : ''}<button class="btn ghost" data-action="wa-disable">Turn off</button></div>
+      <p class="small faint">If WhatsApp stops loading after one of its updates, run the setup command again: it also updates the helper.</p>`;
+  } else {
+    body = `<ol class="steps">
+        <li>It needs Node.js. If you don't have it: <code>sudo apt install nodejs npm</code></li>
+        <li>Open a terminal (<kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>T</kbd>), then paste and run this:${cmd}</li>
+        <li>${waWaiting ? '<span class="pulse"></span> Waiting for it to finish. This page connects by itself.' : 'Come back here. This page connects by itself.'}
+          Then scan the code on the Dashboard with your phone.</li>
+      </ol>
+      <p class="small faint">Already set up? <button class="link" data-action="wa-enable">Connect now</button> · <a href="https://github.com/Stfy-y/productivitypp/tree/master/extras/whatsapp" target="_blank" rel="noopener">How it works</a></p>`;
+  }
+  return `<section class="card" id="whatsapp"><h3>${icon('chat')} WhatsApp</h3>${intro}${body}
+    <p class="small faint">Uses whatsapp-web.js, an unofficial WhatsApp Web client. Messages stay on this computer; only this app can read them from the helper.</p></section>`;
 }
 
 function gcalCard(connected) {
@@ -131,6 +162,8 @@ export function renderSettings() {
         </ol>
         <p class="small faint">Already set up? <button class="link" data-action="music-enable">Connect now</button> · <a href="https://github.com/Stfy-y/productivitypp/tree/master/extras/now-playing" target="_blank" rel="noopener">How it works</a></p>`}
   </section>`}
+
+  ${isLinuxDesktop() || settings.whatsapp ? whatsappCard() : ''}
 
   <section class="card"><h3>⌨️ Keyboard shortcuts</h3>
     <p class="small">Click a shortcut, then press the keys you want (letters, or combos like <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>E</kbd>). <kbd>Backspace</kbd> turns it off, <kbd>Esc</kbd> cancels. Some browser shortcuts, like <kbd>Ctrl</kbd>+<kbd>N</kbd>, can't be taken over.</p>

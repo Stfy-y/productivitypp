@@ -3,7 +3,7 @@ import { esc } from '../util.js';
 import { icon } from '../icons.js';
 import { today, addDays, parseYmd, fmtTime } from '../dates.js';
 import { tasks, sortTasks, habits, habitCount, isScheduled, settings } from '../store.js';
-import { taskRow, eventAttrs } from '../ui.js';
+import { taskRow, eventAttrs, openSheet, closeSheet } from '../ui.js';
 import { ensureRange } from '../gcal.js';
 import { allEventsOn } from '../events.js';
 import { toMin, fmtDur, DEFAULT_DURATION } from './timegrid.js';
@@ -11,6 +11,8 @@ import { getWeather, weatherError, searchResults, wxIcon, wxLabel, isWet } from 
 import { upcomingExams, countdown, whenText } from './exams.js';
 import { EXAM_TYPES } from '../store.js';
 import { nowPlaying, ensureMusic, musicError, livePosition, artUrl, isLinuxDesktop } from '../music.js';
+import { whatsApp, ensureWhatsApp, waError, chatLink, loadAllUnread } from '../whatsapp.js';
+import { PANELS, COLS, layout, isEditing } from '../dashlayout.js';
 
 const nowMin = () => { const d = new Date(); return d.getHours() * 60 + d.getMinutes(); };
 const deg = (v) => (v == null ? '–' : `${Math.round(v)}°`);
@@ -99,9 +101,14 @@ export function toggleFullscreen() {
 }
 
 export function dashActions() {
+  if (isEditing()) {
+    return `<button class="btn small ghost" data-action="dash-reset" title="Put every panel back where it started">Reset</button>
+      <button class="btn small primary" data-action="dash-edit-done">Done</button>`;
+  }
   const awake = awakeWanted();
   const full = !!document.fullscreenElement;
-  return `${canKeepAwake() ? `<button class="icon-btn ${awake ? 'active' : ''}" data-action="dash-awake" aria-pressed="${awake}" title="${awake ? 'Screen stays on (click to allow sleep)' : 'Keep the screen on'}" aria-label="Keep screen on">${icon(awake ? 'eye' : 'eyeOff')}</button>` : ''}
+  return `<button class="icon-btn" data-action="dash-edit" title="Edit the dashboard: add, remove and move panels" aria-label="Edit dashboard">${icon('layout')}</button>
+    ${canKeepAwake() ? `<button class="icon-btn ${awake ? 'active' : ''}" data-action="dash-awake" aria-pressed="${awake}" title="${awake ? 'Screen stays on (click to allow sleep)' : 'Keep the screen on'}" aria-label="Keep screen on">${icon(awake ? 'eye' : 'eyeOff')}</button>` : ''}
     ${canFullscreen() ? `<button class="icon-btn" data-action="dash-fullscreen" title="${full ? 'Exit full screen' : 'Full screen'} (F)" aria-label="Full screen">${icon(full ? 'shrink' : 'expand')}</button>` : ''}`;
 }
 
@@ -249,6 +256,116 @@ function musicCard() {
   </section>`;
 }
 
+/* ---------- WhatsApp ---------- */
+const WA_MAX = 40; // chats rendered; the fit pass hides what doesn't fit and counts it in "+N more"
+const waHue = (s) => [...String(s)].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7);
+function waWhen(ts) {
+  const d = new Date(ts * 1000);
+  const days = Math.round((parseYmd(today()) - new Date(d.getFullYear(), d.getMonth(), d.getDate())) / 864e5);
+  if (days <= 0) return fmtTime(`${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`);
+  if (days === 1) return 'Yesterday';
+  if (days < 7) return d.toLocaleDateString([], { weekday: 'short' });
+  return d.toLocaleDateString([], { day: 'numeric', month: 'short' });
+}
+
+const waAvatar = (c) => {
+  const initial = [...(c.name || '?').replace(/^[^\p{L}\p{N}]+/u, '')][0] || '#';
+  return `<span class="wa-av ${c.isGroup ? 'group' : ''}" style="--h:${waHue(c.id)}" aria-hidden="true">${esc(initial.toUpperCase())}</span>`;
+};
+const waBadge = (c) => `<span class="wa-badge ${c.unread < 0 ? 'dot' : ''}" aria-label="${c.unread < 0 ? 'Marked unread' : `${c.unread} unread`}">${c.unread > 0 ? c.unread : ''}</span>`;
+const waSections = (chats) => [['Pinned', chats.filter((c) => c.pinned)], ['People', chats.filter((c) => !c.pinned && !c.isGroup)], ['Groups', chats.filter((c) => !c.pinned && c.isGroup)]]
+  .filter(([, list]) => list.length);
+
+function waChat(c) {
+  return `<div class="wa-chat ${c.muted ? 'muted' : ''}" data-trim="wa" data-action="wa-all" data-chat="${esc(c.id)}" role="button" tabindex="0" title="Show all messages">
+    ${waAvatar(c)}
+    <span class="wa-body">
+      <span class="wa-top"><b>${esc(c.name)}</b><time>${esc(waWhen(c.ts))}</time></span>
+      ${c.messages.map((m) => `<span class="wa-msg">${m.author ? `<i>${esc(m.author)}:</i> ` : ''}${esc(m.text)}</span>`).join('')}
+    </span>
+    ${waBadge(c)}
+  </div>`;
+}
+
+/* ---------- WhatsApp: every unread message, in a window inside the app ---------- */
+function waThread(c, loading) {
+  const more = c.unread > c.messages.length;
+  return `<section class="wa-thread ${c.muted ? 'muted' : ''}" data-thread="${esc(c.id)}">
+    <div class="wa-thread-h">${waAvatar(c)}<b>${esc(c.name)}</b>${c.muted ? '<span class="tag">Muted</span>' : ''}${waBadge(c)}</div>
+    <div class="wa-msgs">${c.messages.map((m) => `<div class="wa-bubble">${m.author ? `<i>${esc(m.author)}</i>` : ''}<span>${esc(m.text)}</span><time>${esc(waWhen(m.ts))}</time></div>`).join('')
+      || '<p class="small faint">Marked as unread.</p>'}</div>
+    ${more ? `<p class="small faint">${loading ? 'Loading more…' : `Showing the newest ${c.messages.length} of ${c.unread} unread.`}</p>` : ''}
+    <a class="link small" href="${esc(chatLink(c))}" target="_blank" rel="noopener">Reply in WhatsApp Web</a>
+  </section>`;
+}
+
+function waSheetBody(d, loading) {
+  const chats = d?.chats || [];
+  if (!chats.length) return '<p class="faint pad">All caught up. No unread messages.</p>';
+  return waSections(chats).map(([name, list]) => `<div class="wa-sec-h">${name}</div>${list.map((c) => waThread(c, loading)).join('')}`).join('');
+}
+
+/** "+N more" or a chat on the Dashboard: all unread chats with all their unread messages (up to 50 each). */
+export function openWhatsAppSheet(focusId) {
+  const d = whatsApp();
+  const head = (x) => `${x?.total || 0} unread · ${(x?.chats || []).length} chats`;
+  const el = openSheet(`<div class="wa-sheet">
+      <div class="evd-head"><h2>${icon('chat')} WhatsApp</h2><span class="count" data-wa-count>${head(d)}</span>
+        <button class="icon-btn" data-x="close" aria-label="Close">${icon('close')}</button></div>
+      <div class="wa-sheet-body" data-wa-body>${waSheetBody(d, true)}</div>
+      <div class="editor-foot"><span class="spacer"></span><button class="btn primary" data-x="close">Done</button></div>
+    </div>`, {
+    wide: true,
+    onMount(root) { root.addEventListener('click', (ev) => { if (ev.target.closest('[data-x="close"]')) closeSheet(); }); },
+  });
+  const focus = () => {
+    if (!focusId) return;
+    el.querySelector(`[data-thread="${CSS.escape(focusId)}"]`)?.scrollIntoView({ block: 'start' });
+  };
+  focus();
+  loadAllUnread().then((full) => {
+    if (!el.isConnected) return;
+    const body = el.querySelector('[data-wa-body]');
+    const top = body.scrollTop;
+    body.innerHTML = waSheetBody(full, false);
+    el.querySelector('[data-wa-count]').textContent = head(full);
+    if (focusId) focus(); else body.scrollTop = top;
+  }).catch(() => {
+    if (!el.isConnected) return;
+    el.querySelector('[data-wa-body]').innerHTML = waSheetBody(d, false);
+  });
+}
+
+function whatsappCard() {
+  const head = (extra = '') => `<h3>${icon('chat')} WhatsApp ${extra}</h3>`;
+  if (!settings.whatsapp) {
+    if (!isLinuxDesktop()) return '';
+    return `<section class="card dash-music hint dash-wa-note" data-trim="hint"><div class="mu">
+      <div class="mu-art ph small">${icon('chat')}</div>
+      <div class="mu-info"><b>See unread WhatsApp messages</b><small>Pinned chats first, then people, then groups.</small></div>
+      <a class="btn small primary" href="#/settings/whatsapp">Set up</a>
+      <button class="icon-btn small" data-action="dash-remove" data-panel="whatsapp" aria-label="Remove from the Dashboard" title="Remove from the Dashboard">${icon('close')}</button></div></section>`;
+  }
+  const d = whatsApp();
+  const msg = (text, warn) => `<section class="card dash-wa-note">${head()}<p class="small ${warn ? 'warn' : 'faint'}">${text}</p></section>`;
+  if (!d) return msg(`${esc(waError || 'Connecting…')}${waError ? ' <a href="#/settings/whatsapp">Help</a>' : ''}`, !!waError);
+  if (d.status === 'error') return msg(`⚠ ${esc(d.error)}`, true);
+  if (d.status === 'qr') {
+    return `<section class="card dash-wa-note">${head('<small class="faint">Link this computer</small>')}
+      <div class="wa-link">${d.qr ? `<img class="wa-qr" src="${esc(d.qr)}" alt="WhatsApp link code" width="168" height="168">` : '<div class="wa-qr ph">Loading code…</div>'}
+        <ol class="small"><li>Open WhatsApp on your phone</li><li><b>Settings → Linked devices → Link a device</b></li><li>Scan this code</li></ol></div></section>`;
+  }
+  if (d.status !== 'ready') return msg(d.status === 'loading' && d.progress ? `Loading your chats… ${Math.round(d.progress)}%` : 'Starting WhatsApp…');
+  const chats = d.chats || [];
+  if (!chats.length) return `<section class="card dash-wa-note">${head()}<div class="faint pad">All caught up. No unread messages.</div></section>`;
+  const shown = chats.slice(0, WA_MAX);
+  const unreadChats = chats.length;
+  return `<section class="card dash-wa">${head(`<span class="count" title="${unreadChats} chat${unreadChats > 1 ? 's' : ''} with unread messages">${d.total} unread · ${unreadChats} chat${unreadChats > 1 ? 's' : ''}</span>`)}
+    <div class="wa-list">${waSections(shown).map(([name, list]) => `<div class="wa-sec"><div class="wa-sec-h">${name}</div>${list.map(waChat).join('')}</div>`).join('')}</div>
+    ${moreLink('wa', Math.max(0, chats.length - WA_MAX), '#', 'data-action="wa-all"')}
+  </section>`;
+}
+
 function weatherCard() {
   const loc = settings.weatherLoc;
   if (!loc) {
@@ -368,12 +485,16 @@ function tomorrowCard() {
 
 /* ---------- Fit to the window (no page scroll on laptops) ---------- */
 /** "+N more" link; N = rows hidden by the fit pass + `extra` rows that were never rendered. */
-function moreLink(group, extra, href) {
-  return `<div class="more-row"><a class="link" href="${href}" data-more="${group}" data-extra="${extra}" ${extra ? '' : 'hidden'}>+${extra} more</a></div>`;
+function moreLink(group, extra, href, attrs = '') {
+  return `<div class="more-row"><a class="link" href="${href}" ${attrs} data-more="${group}" data-extra="${extra}" ${extra ? '' : 'hidden'}>+${extra} more</a></div>`;
 }
 
-const TASKS_MIN = 150; // header + one task + "+N more"
-const EXAMS_MIN = 190; // header + the next exam + a bit of the list
+/* Flexible cards share whatever height their column has left and trim their own lists to fit.
+   The minimum is the height a card should get before other cards in its column give up rows. */
+const FLEX = { 'dash-exams': 190, 'dash-tasks': 150, 'dash-tm': 0, 'dash-wa': 150 };
+const FLEX_SEL = Object.keys(FLEX).map((c) => `.${c}`).join(', ');
+const OWN_ROWS = { 'dash-tasks': ['tasks'], 'dash-tm': ['tomorrow'], 'dash-wa': ['wa'] };
+const flexMin = (card) => FLEX[Object.keys(FLEX).find((c) => card.classList.contains(c))] || 0;
 const overflowing = (el) => !!el && el.scrollHeight > el.clientHeight + 1;
 /** Hide rows from the end while `cond()` is true (keeps at least `keep` rows). */
 function trimWhile(rows, cond, keep = 0) {
@@ -394,7 +515,7 @@ function watchCards(dash) {
     requestAnimationFrame(() => { refitQueued = false; fitDashboard(); });
   });
   watcher.disconnect();
-  for (const card of dash.querySelectorAll('.dash-col > .card:not(.dash-exams, .dash-tasks, .dash-tm)')) {
+  for (const card of dash.querySelectorAll(`.dash-col > .card:not(${FLEX_SEL})`)) {
     fitHeights.set(card, card.offsetHeight);
     watcher.observe(card);
   }
@@ -404,7 +525,7 @@ function watchCards(dash) {
 export function fitDashboard() {
   const dash = document.querySelector('.dash');
   if (!dash) { document.body.classList.remove('dash-fit'); return; }
-  const fit = matchMedia('(min-width: 1100px) and (min-height: 600px)').matches;
+  const fit = !isEditing() && matchMedia('(min-width: 1100px) and (min-height: 600px)').matches;
   document.body.classList.toggle('dash-fit', fit);
   dash.querySelectorAll('[data-trim]').forEach((el) => { el.hidden = false; });
   // show every "+N more" while trimming so its height is counted; ones left at 0 are hidden at the end
@@ -412,29 +533,26 @@ export function fitDashboard() {
   dash.style.height = '';
   if (fit) {
     dash.style.height = `${Math.floor(window.innerHeight - dash.getBoundingClientRect().top - 16)}px`;
-    const rows = (g) => [...dash.querySelectorAll(`[data-trim="${g}"]`)];
-
-    // Column 1: the agenda shows in full (no scrolling); the exams list scrolls in whatever room is left.
-    // If even that's too tight, the agenda drops finished items (oldest first), then the latest ones.
-    const col1 = dash.querySelector('.dash-main');
-    const examsCard = dash.querySelector('.dash-exams');
-    const tight1 = () => overflowing(col1) || (!!examsCard && examsCard.clientHeight < EXAMS_MIN);
-    const past = rows('agenda-past');
-    for (let i = 0; i < past.length && tight1(); i++) past[i].hidden = true;
-    trimWhile(rows('agenda'), tight1);
-    // Column 2: keep room for the task list: drop the music setup hint, then extra "Now" items
-    const tasksCard = dash.querySelector('.dash-tasks');
-    const col2 = tasksCard?.closest('.dash-col');
-    const tight = () => !!tasksCard && (overflowing(col2) || tasksCard.clientHeight < TASKS_MIN);
-    trimWhile(rows('hint'), tight);
-    trimWhile(rows('nn'), tight);
-    trimWhile(rows('tasks'), () => overflowing(tasksCard));
-    // Column 3: tomorrow's list first, then the 5-day forecast (keep 2 days)
-    const tm = dash.querySelector('.dash-tm');
-    const col3 = tm?.closest('.dash-col');
-    trimWhile(rows('tomorrow'), () => overflowing(tm));
-    trimWhile(rows('wxdays'), () => overflowing(tm) || overflowing(col3), 2);
-
+    // Panels can sit in any column, so every column runs the same steps on whatever it holds
+    for (const col of dash.querySelectorAll('.dash-col')) {
+      const rows = (g, root = col) => [...root.querySelectorAll(`[data-trim="${g}"]`)];
+      const flex = [...col.querySelectorAll(`:scope > :is(${FLEX_SEL})`)];
+      // a flexible card is cramped when it's below its minimum and its content doesn't fit (the exams list scrolls inside)
+      const cramped = (c) => c.clientHeight < flexMin(c) && (overflowing(c) || overflowing(c.querySelector('.dx-list')));
+      const tight = () => overflowing(col) || flex.some(cramped);
+      // 1. fixed cards give up rows: finished agenda items (oldest first), later agenda items, the music hint, extra "Now" items
+      const past = rows('agenda-past');
+      for (let i = 0; i < past.length && tight(); i++) past[i].hidden = true;
+      trimWhile(rows('agenda'), tight);
+      trimWhile(rows('hint'), tight);
+      trimWhile(rows('nn'), tight);
+      // 2. flexible cards trim their own lists (the exams list scrolls instead)
+      for (const c of flex) {
+        for (const g of OWN_ROWS[[...c.classList].find((k) => OWN_ROWS[k])] || []) trimWhile(rows(g, c), () => overflowing(c));
+      }
+      // 3. last resort: the 5-day forecast down to 2 days
+      trimWhile(rows('wxdays'), () => overflowing(col) || flex.some(overflowing), 2);
+    }
   }
   if (fit) watchCards(dash);
   dash.querySelectorAll('[data-more]').forEach((a) => {
@@ -445,27 +563,55 @@ export function fitDashboard() {
   });
 }
 
+/* ---------- Layout & edit mode ---------- */
+const DIRS = [['left', 'Move left', 'left'], ['up', 'Move up', 'up'], ['down', 'Move down', 'down'], ['right', 'Move right', 'right']];
+function editPanel(id, html, ci, i, colLen) {
+  const p = PANELS[id];
+  const can = { left: ci > 0, right: ci < COLS - 1, up: i > 0, down: i < colLen - 1 };
+  const body = html || `<section class="card dash-empty"><h3>${icon(p.icon)} ${esc(p.title)}</h3><p class="small faint">Nothing to show right now. It appears when there is.</p></section>`;
+  return `<div class="dash-panel" data-panel="${id}">
+    <div class="dp-bar">
+      <span class="dp-handle" data-dash-handle title="Drag to move" aria-hidden="true">${icon('grip')}</span>
+      <span class="dp-name">${esc(p.title)}</span>
+      ${DIRS.map(([dir, label, ic]) => `<button class="icon-btn small dp-${dir}" data-action="dash-move" data-panel="${id}" data-dir="${dir}" aria-label="${label}: ${esc(p.title)}" title="${label}" ${can[dir] ? '' : 'disabled'}>${icon(ic)}</button>`).join('')}
+      <button class="icon-btn small danger" data-action="dash-remove" data-panel="${id}" aria-label="Remove ${esc(p.title)}" title="Remove from the Dashboard">${icon('close')}</button>
+    </div>${body}</div>`;
+}
+
+function editTray(hidden) {
+  return `<div class="card dash-tray">
+    <p><b>Editing the Dashboard.</b> Drag panels to move them${matchMedia('(pointer: coarse)').matches ? ' (hold the ⠿ handle)' : ''}, or use the arrows. <kbd>Esc</kbd> or <b>Done</b> when you're finished.</p>
+    <div class="dash-tray-add">${hidden.length
+      ? `<span class="small faint">Add a panel:</span>${hidden.map((id) => `<button class="btn small" data-action="dash-add" data-panel="${id}">${icon('plus')} ${esc(PANELS[id].title)}</button>`).join('')}`
+      : '<span class="small faint">Every panel is on the Dashboard. Remove one with its ✕.</span>'}</div>
+  </div>`;
+}
+
 export function renderDashboard() {
   const t = today();
   ensureRange(t, addDays(t, 1));
   ensureMusic();
+  ensureWhatsApp();
   const now = nowMin();
   const items = timedItems(t);
-  return `<div class="dash">
-    <div class="dash-col dash-main">
-      ${heroCard(now, items)}
-      ${examsCard()}
-      ${timelineCard(now, items)}
-    </div>
-    <div class="dash-col">
-      ${nowNextCard(now, items)}
-      ${musicCard()}
-      ${tasksCard()}
-      ${habitsCard()}
-    </div>
-    <div class="dash-col">
-      ${weatherCard()}
-      ${tomorrowCard()}
-    </div>
+  const RENDER = {
+    hero: () => heroCard(now, items),
+    exams: examsCard,
+    agenda: () => timelineCard(now, items),
+    nownext: () => nowNextCard(now, items),
+    music: musicCard,
+    tasks: tasksCard,
+    habits: habitsCard,
+    weather: weatherCard,
+    whatsapp: whatsappCard,
+    tomorrow: tomorrowCard,
+  };
+  const { cols, hidden, custom } = layout();
+  const editing = isEditing();
+  const colHtml = (ids, ci) => (editing
+    ? `${ids.map((id, i) => editPanel(id, RENDER[id](), ci, i, ids.length)).join('')}<div class="dash-drop-end">Drop panels here</div>`
+    : ids.map((id) => RENDER[id]()).join(''));
+  return `${editing ? editTray(hidden) : ''}<div class="dash ${custom ? 'custom' : ''} ${editing ? 'editing' : ''}">
+    ${cols.map((ids, ci) => `<div class="dash-col ${ci === 0 ? 'dash-main' : ''}" ${editing ? `data-col="${ci}" data-col-label="Column ${ci + 1}"` : ''}>${colHtml(ids, ci)}</div>`).join('')}
   </div>`;
 }

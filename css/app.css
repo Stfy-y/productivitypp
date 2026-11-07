@@ -730,7 +730,9 @@ body[data-view="dashboard"] #view { max-width: 1640px; }
 .dash .task { box-shadow: none; background: var(--surface-2); }
 /* phones: most glanceable first */
 .dash-hero { order: 1; } .dash-nn { order: 2; } .dash-exams { order: 3; } .dash-wx { order: 4; } .dash-tasks { order: 5; }
-.dash-habits { order: 6; } .dash-tl { order: 7; } .dash-tm { order: 8; }
+.dash-habits { order: 6; } .dash-wa, .dash-wa-note { order: 6; } .dash-tl { order: 7; } .dash-tm { order: 8; }
+/* once the layout has been edited, phones show the panels in column order (column 1, then 2, then 3) */
+.dash.custom > .dash-col > .card { order: 0; }
 @media (min-width: 760px) {
   /* two columns: clock + agenda on the left, everything else stacked on the right */
   .dash { display: grid; grid-template-columns: 1.1fr 1fr; grid-template-rows: auto 1fr; gap: 14px; align-items: start; }
@@ -745,13 +747,15 @@ body[data-view="dashboard"] #view { max-width: 1640px; }
 /* Fit mode (laptop-sized windows): the page doesn't scroll, js/views/dashboard.js trims lists to fit */
 body.dash-fit #main { overflow: hidden; padding-bottom: 0; }
 body.dash-fit .dash { align-items: stretch; overflow: hidden; }
-body.dash-fit .dash-col { min-height: 0; overflow: hidden; }
-body.dash-fit .dash-col > .card:not(.dash-exams, .dash-tasks, .dash-tm) { flex: none; }
-body.dash-fit :is(.dash-exams, .dash-tasks, .dash-tm) { flex: 1 1 0; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+/* a column only scrolls when trimming wasn't enough (an edited layout with no flexible card in it) */
+body.dash-fit .dash-col { min-height: 0; overflow-x: hidden; overflow-y: auto; scrollbar-width: thin; }
+body.dash-fit .dash-col > .card:not(.dash-exams, .dash-tasks, .dash-tm, .dash-wa) { flex: none; }
+/* flexible cards: share the column's leftover height (in proportion to their content when several share a column) */
+body.dash-fit :is(.dash-exams, .dash-tasks, .dash-tm, .dash-wa) { flex: 1 1 auto; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
 body.dash-fit .dash-exams > :not(.dx-list) { flex: none; }
 body.dash-fit .dash-exams .dx-list { flex: 1; min-height: 0; max-height: none; }
 /* lists inside shrinking cards keep their size, so the card overflows and the fit pass trims rows */
-body.dash-fit :is(.dash-tasks, .dash-tm) > * { flex: none; }
+body.dash-fit :is(.dash-tasks, .dash-tm, .dash-wa) > * { flex: none; }
 body.dash-fit .dash-tasks { min-height: 96px; }
 .more-row { text-align: center; font-size: 13px; padding-top: 6px; }
 .more-row:has(> [hidden]) { display: none; }
@@ -1147,3 +1151,73 @@ body[data-view="dashboard"] :is(#view, #topbar > *) { transform: translate(var(-
 .is-fullscreen body[data-view="dashboard"] #main { grid-column: 1; padding-bottom: 24px; }
 .is-fullscreen body[data-view="dashboard"] #view-title { opacity: 0; }
 .is-fullscreen.idle, .is-fullscreen.idle * { cursor: none !important; }
+
+/* ---------- Dashboard: WhatsApp ---------- */
+.wa-list { display: flex; flex-direction: column; }
+.wa-sec + .wa-sec { margin-top: 4px; }
+.wa-sec:not(:has(.wa-chat:not([hidden]))) { display: none; }
+.wa-sec-h { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--faint); padding: 6px 6px 2px; }
+.wa-chat { cursor: pointer; display: grid; grid-template-columns: 36px 1fr auto; gap: 10px; align-items: start; padding: 7px 6px; border-radius: 10px; color: inherit; text-decoration: none; }
+.wa-chat:hover { background: var(--surface-2); }
+.wa-av { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 15px; color: #fff; background: hsl(var(--h) 42% 47%); }
+.wa-av.group { border-radius: 11px; }
+.wa-body { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.wa-top { display: flex; align-items: baseline; gap: 8px; }
+.wa-top b { font-size: 14.5px; font-weight: 650; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.wa-top time { margin-left: auto; flex: none; font-size: 11.5px; font-weight: 600; color: var(--ok); font-variant-numeric: tabular-nums; }
+.wa-msg { font-size: 13px; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.wa-msg i { font-style: normal; font-weight: 600; color: var(--text); }
+.wa-badge { align-self: center; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 99px; background: var(--ok); color: #fff; font-size: 12px; font-weight: 700; display: grid; place-items: center; font-variant-numeric: tabular-nums; }
+.wa-badge.dot { min-width: 12px; width: 12px; height: 12px; padding: 0; }
+.wa-chat.muted .wa-badge { background: var(--faint); }
+.wa-chat.muted .wa-top time { color: var(--muted); }
+.wa-link { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+.wa-qr { width: 168px; height: 168px; flex: none; border-radius: 10px; background: #fff; padding: 6px; image-rendering: pixelated; }
+.wa-qr.ph { display: grid; place-items: center; color: #666; font-size: 13px; }
+.wa-link ol { margin: 0; padding-left: 18px; color: var(--muted); display: grid; gap: 6px; flex: 1; min-width: 160px; }
+.dash-wa-note h3 small { font-weight: 500; }
+
+/* ---------- Dashboard: edit mode ---------- */
+.dash-tray { margin-bottom: 14px; }
+.dash-tray p { margin: 0 0 10px; color: var(--text); }
+.dash-tray-add { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.dash-tray-add .btn svg { width: 15px; height: 15px; }
+.dash.editing { gap: 14px; }
+.dash.editing .dash-col { display: flex; flex-direction: column; gap: 12px; min-width: 0; padding: 10px; border-radius: calc(var(--radius) + 4px); border: 1.5px dashed var(--line); }
+.dash-panel { position: relative; border-radius: var(--radius); background: var(--surface-2); padding: 0 6px 6px; cursor: grab; }
+.dash-panel > .card { margin: 0; pointer-events: none; user-select: none; max-height: 230px; overflow: hidden; -webkit-mask-image: linear-gradient(#000 calc(100% - 36px), transparent); mask-image: linear-gradient(#000 calc(100% - 36px), transparent); }
+.dash-empty { opacity: .75; }
+.dp-bar { display: flex; align-items: center; gap: 2px; padding: 4px 0; cursor: grab; }
+.dp-handle { display: grid; place-items: center; width: 30px; height: 30px; color: var(--muted); cursor: grab; touch-action: none; border-radius: 8px; }
+.dp-handle:hover { background: var(--surface); color: var(--text); }
+.dp-name { font-weight: 650; font-size: 13px; margin-right: auto; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.dp-bar .icon-btn:disabled { opacity: .3; cursor: default; }
+.dp-bar .icon-btn.danger:hover { color: var(--danger); }
+.dash-drop-end { min-height: 52px; border-radius: 12px; border: 1.5px dashed var(--line); display: grid; place-items: center; color: var(--faint); font-size: 12.5px; }
+.dash-col:has(> .dash-panel) > .dash-drop-end { min-height: 36px; }
+.dash-ph { border-radius: var(--radius); background: var(--accent-soft); outline: 2px dashed var(--accent); outline-offset: -2px; flex: none; }
+.dash-panel.dash-dragging { display: none; }
+.dash-ghost { position: fixed; top: 0; left: 0; z-index: 1000; pointer-events: none; overflow: hidden; opacity: .94; box-shadow: var(--shadow-lg); cursor: grabbing; }
+body.is-dragging, body.is-dragging * { cursor: grabbing !important; }
+/* phones: up/down move within the list, left/right between the columns (shown one after another) */
+@media (max-width: 759px) {
+  .dash.editing .dash-col::before { content: attr(data-col-label); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--faint); }
+}
+
+/* WhatsApp: all-messages window */
+.wa-sheet .evd-head h2 { display: flex; align-items: center; gap: 8px; margin: 0; }
+.wa-sheet .evd-head .count { margin-left: auto; }
+.wa-sheet-body { overflow-y: auto; max-height: min(64dvh, 640px); margin: 4px -4px 0; padding: 0 4px; overscroll-behavior: contain; }
+.wa-sheet-body > .wa-sec-h { position: sticky; top: 0; z-index: 1; background: var(--surface); padding-top: 10px; }
+.wa-thread { padding: 10px 0 12px; border-bottom: 1px solid var(--line); scroll-margin-top: 34px; }
+.wa-thread:last-child { border-bottom: 0; }
+.wa-thread-h { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.wa-thread-h b { font-size: 15px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.wa-thread-h .wa-badge { margin-left: auto; }
+.wa-thread.muted .wa-badge { background: var(--faint); }
+.wa-msgs { display: flex; flex-direction: column; gap: 6px; margin-left: 46px; }
+.wa-bubble { align-self: flex-start; max-width: 100%; background: var(--surface-2); border-radius: 4px 14px 14px 14px; padding: 7px 11px 6px; display: flex; flex-direction: column; gap: 1px; }
+.wa-bubble i { font-style: normal; font-weight: 650; font-size: 12.5px; color: hsl(var(--h, 150) 45% 42%); }
+.wa-bubble span { font-size: 14px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.wa-bubble time { align-self: flex-end; font-size: 11px; color: var(--faint); font-variant-numeric: tabular-nums; }
+.wa-thread > p, .wa-thread > .link { display: block; margin: 8px 0 0 46px; }

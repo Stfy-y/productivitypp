@@ -24,6 +24,9 @@ const defaultSettings = {
   music: false, // show now playing from the local helper (extras/now-playing)
   musicUrl: 'http://127.0.0.1:8971',
   musicPhone: true, // on devices without the helper: show the computer's song (shared through the sync server)
+  whatsapp: false, // show unread WhatsApp chats from the local helper (extras/whatsapp)
+  whatsappUrl: 'http://127.0.0.1:8972',
+  dashLayout: null, // Dashboard panels per column, set in its edit mode (js/dashlayout.js); null = default
 };
 
 function load(key) {

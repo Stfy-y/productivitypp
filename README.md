@@ -5,7 +5,7 @@ Plain HTML/CSS/JS with no build step and no dependencies. Hosted on GitHub Pages
 
 ## Features
 
-- **Dashboard:** a screen to leave open on your laptop: a big clock, weather and forecast, what's on now and next, today's agenda, tasks, habits and a look at tomorrow. Full screen (`F`), keep-the-screen-on and burn-in protection (it drifts a few pixels now and then). On Linux it can also show the song you're playing, with controls ([`extras/now-playing/`](extras/now-playing/)).
+- **Dashboard:** a screen to leave open on your laptop: a big clock, weather and forecast, what's on now and next, today's agenda, tasks, habits and a look at tomorrow. Full screen (`F`), keep-the-screen-on and burn-in protection (it drifts a few pixels now and then). On Linux it can also show the song you're playing, with controls ([`extras/now-playing/`](extras/now-playing/)), and your unread WhatsApp chats ([`extras/whatsapp/`](extras/whatsapp/)). **Edit mode** (the layout button at the top) lets you add, remove and move panels.
 - **Exams:** their own page and editor (type, room, notes, grade), a countdown on the Dashboard and a reminder the day before. They also show in the Calendar with 🎓. Quick add: switch to *Exam* and type `Calculus 15.12 9am`.
 - **Tasks:** Today, Next 7 Days, All, Completed. Repeating tasks, reminders, notes, undo.
 - **Smart quick add** (press `n` on desktop): `Gym tomorrow 6pm !2`, `Pay rent every month`, `Exam 15.12 at 9`, `Call mom fri`
@@ -71,10 +71,13 @@ js/store.js                               local data model (localStorage)
 js/shared.js                              merge + reminder logic (mirrored in worker/worker.js)
 js/parse.js                               smart quick-add parser
 js/sync.js, js/notify.js                  sync, notifications, push, badge
-js/views/*.js                             tasks, calendar, matrix, habits, settings
+js/views/*.js                             tasks, calendar, matrix, habits, settings, dashboard
+js/dashlayout.js                          Dashboard panels, layout and edit mode
+js/music.js, js/whatsapp.js               now playing and WhatsApp (read from the local helpers in extras/)
 worker/                                   optional Cloudflare Worker (sync + push + widget)
 widgets/                                  Windows 11 widget template
 extras/scriptable-widget.js               iOS widget
+extras/now-playing/, extras/whatsapp/     optional Linux helpers for the Dashboard
 ```
 
 When you change app files, bump `VERSION` in `sw.js` so installed apps pick up the update.

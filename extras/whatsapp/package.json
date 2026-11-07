@@ -1,0 +1,11 @@
+{
+  "name": "productivitypp-whatsapp",
+  "private": true,
+  "description": "Shows your unread WhatsApp chats on the Productivity++ Dashboard (local helper).",
+  "main": "whatsapp-helper.js",
+  "engines": { "node": ">=18" },
+  "dependencies": {
+    "qrcode": "^1.5.4",
+    "whatsapp-web.js": "^1.26.0"
+  }
+}

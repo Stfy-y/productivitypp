@@ -15,11 +15,13 @@ import { renderMatrix, toggleMatrixDone } from './views/matrix.js';
 import { renderHabits, renderHabitDetail, habitAction } from './views/habits.js';
 import { renderSettings, install } from './views/settings.js';
 import {
-  renderDashboard, dashActions, MUSIC_HINT_KEY, applyBurnIn, fitDashboard, startDashTicker, syncWakeLock, awakeWanted, setAwakeWanted, toggleFullscreen,
+  renderDashboard, dashActions, openWhatsAppSheet, MUSIC_HINT_KEY, applyBurnIn, fitDashboard, startDashTicker, syncWakeLock, awakeWanted, setAwakeWanted, toggleFullscreen,
 } from './views/dashboard.js';
 import { setWeatherListener, searchPlaces, pickPlace, useMyLocation, clearLocation } from './weather.js';
 import { setMusicListener, startMusic, refreshMusic, musicControl, installCommand, watchForHelper, loadPhoneInfo, viaSync } from './music.js';
 import { openNowPlaying, closeNowPlaying, updateNowPlaying, updateMiniPlayer } from './nowplaying-full.js';
+import { setWhatsAppListener, startWhatsApp, refreshWhatsApp, logoutWhatsApp, waInstallCommand, watchForWhatsApp } from './whatsapp.js';
+import { isEditing, isDraggingPanel, setEditing, enableDashEdit, addPanel, removePanel, movePanel, resetLayout, PANELS } from './dashlayout.js';
 import { scheduleSync, syncNow, connect, writeSwConfig } from './sync.js';
 import {
   requestPermission, testLocal, startScheduler, enablePush, disablePush, testPush, refreshBadgeAndWidget,
@@ -85,6 +87,7 @@ function onRoute() {
   }
   closeSheet();
   closeNowPlaying();
+  if (r.name !== 'dashboard') setEditing(false);
   route = r;
   lastViewHash = location.hash || `#/${homeRoute()}`;
   $('#view').scrollTop = 0;
@@ -95,6 +98,7 @@ function onRoute() {
 
 /* ---------- Render ---------- */
 function render() {
+  if (isDraggingPanel()) return; // the drop redraws
   try {
     renderView();
   } catch (err) {
@@ -130,7 +134,7 @@ function renderView() {
   document.body.dataset.view = name;
   fitDashboard(); // also clears the no-scroll mode on other pages
   syncWakeLock(name === 'dashboard');
-  $('#fab').hidden = ['settings', 'habit', 'habits'].includes(name);
+  $('#fab').hidden = ['settings', 'habit', 'habits'].includes(name) || isEditing();
 
   $$('[data-nav]').forEach((a) => a.classList.toggle('on', a.dataset.nav === name || (name === 'habit' && a.dataset.nav === 'habits')));
   $$('[data-tab]').forEach((a) => {
@@ -207,6 +211,43 @@ async function handleAction(action, el, e) {
     case 'matrix-done': toggleMatrixDone(); render(); break;
 
     case 'dash-fullscreen': toggleFullscreen(); break;
+    case 'dash-edit': setEditing(true); render(); break;
+    case 'dash-edit-done': setEditing(false); render(); break;
+    case 'dash-move': movePanel(el.dataset.panel, el.dataset.dir); render(); break;
+    case 'dash-add': addPanel(el.dataset.panel); render(); toast(`${PANELS[el.dataset.panel].title} added`); break;
+    case 'dash-remove': {
+      const p = el.dataset.panel;
+      removePanel(p);
+      render();
+      toast(`${PANELS[p].title} removed`, { action: 'Undo', onAction: () => { addPanel(p); render(); } });
+      break;
+    }
+    case 'dash-reset':
+      if (await confirmDialog('Put every Dashboard panel back where it started?', 'Reset')) { resetLayout(); render(); }
+      break;
+    case 'wa-all': openWhatsAppSheet(el.dataset.chat || null); break;
+    case 'wa-copy':
+      try { await navigator.clipboard.writeText(waInstallCommand()); toast('Copied. Paste it into a terminal.'); } catch { toast('Select the command and copy it'); }
+      if (!settings.whatsapp) {
+        watchForWhatsApp(async () => {
+          saveSettings({ whatsapp: true });
+          await refreshWhatsApp();
+          toast('WhatsApp helper found ✓ Scan the code on the Dashboard.', { action: 'Open Dashboard', onAction: () => { location.hash = '#/dashboard'; }, ms: 10000 });
+        });
+      }
+      break;
+    case 'wa-enable':
+      saveSettings({ whatsapp: true });
+      if (await refreshWhatsApp()) toast('Connected to the WhatsApp helper ✓');
+      else toast('Can\'t reach the helper. Copy the setup command and run it first.', { ms: 7000 });
+      render(); break;
+    case 'wa-disable': saveSettings({ whatsapp: false }); render(); break;
+    case 'wa-logout':
+      if (await confirmDialog('Unlink this computer from WhatsApp? To see messages again you\'ll scan a new code.', 'Unlink')) {
+        try { await logoutWhatsApp(); toast('Unlinked from WhatsApp'); } catch (err) { toast(err.message); }
+        render();
+      }
+      break;
     case 'dash-awake': {
       const on = !awakeWanted();
       setAwakeWanted(on);
@@ -407,11 +448,12 @@ document.addEventListener('keydown', (e) => {
     toast(`Quick add ${which}: ${combo}`);
     return;
   }
-  if ((e.key === 'Enter' || e.key === ' ') && ['open-event', 'edit-event', 'exam-edit'].includes(e.target.dataset?.action)) {
+  if ((e.key === 'Enter' || e.key === ' ') && ['open-event', 'edit-event', 'exam-edit', 'wa-all'].includes(e.target.dataset?.action)) {
     e.preventDefault();
     handleAction(e.target.dataset.action, e.target, e);
     return;
   }
+  if (e.key === 'Escape' && isEditing() && !e.target.closest('#sheet-root')) { setEditing(false); render(); return; }
   const combo = comboOf(e);
   if (!combo) return;
   const plain = !/(Ctrl|Alt|Meta)\+/.test(combo);
@@ -426,6 +468,7 @@ document.addEventListener('keydown', (e) => {
 
 /* ---------- Drag & drop (matrix quadrants, calendar days, task groups) ---------- */
 enableResize($('#view'));
+enableDashEdit($('#view'), () => render());
 enableCalSwipe($('#view'), render);
 enableDrag($('#view'), (dragId, kind, value, info) => {
   if (dragId.startsWith('ev:')) {
@@ -473,6 +516,8 @@ subscribe((kind) => {
 setGcalListener(() => render());
 setWeatherListener(() => { if (route.name === 'dashboard' || route.name === 'settings') render(); });
 startDashTicker(() => route.name === 'dashboard' && document.visibilityState === 'visible', render);
+setWhatsAppListener(() => { if (route.name === 'dashboard' || route.name === 'settings') render(); });
+startWhatsApp(() => document.visibilityState === 'visible' && route.name === 'dashboard');
 setMusicListener(() => { updateNowPlaying(); updateMiniPlayer(); if (route.name === 'dashboard' || route.name === 'settings') render(); });
 // the computer polls the helper on the Dashboard; the phone shows the song everywhere, so it polls while the app is visible
 startMusic(() => document.visibilityState === 'visible' && (route.name === 'dashboard' || viaSync()));
