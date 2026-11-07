@@ -233,8 +233,9 @@ function musicCard() {
   const pos = livePosition(s);
   return `<section class="card dash-music ${playing ? 'playing' : 'paused'}">
     ${art ? `<img class="mu-bg" src="${esc(art)}" alt="" referrerpolicy="no-referrer" aria-hidden="true">` : ''}
+    <button class="icon-btn mu-full-btn" data-action="music-full" aria-label="Full screen player" title="Full screen player">${icon('expand')}</button>
     <div class="mu">
-      ${art ? `<img class="mu-art" src="${esc(art)}" alt="" referrerpolicy="no-referrer">` : `<div class="mu-art ph">${icon('music')}</div>`}
+      ${art ? `<img class="mu-art" src="${esc(art)}" alt="" referrerpolicy="no-referrer" data-action="music-full" title="Full screen player">` : `<div class="mu-art ph">${icon('music')}</div>`}
       <div class="mu-info"><span class="nn-label">${playing ? 'Now playing' : 'Paused'} · ${esc(s.player)}</span>
         <b title="${esc(s.title)}">${esc(s.title)}</b><small>${esc(s.artist || s.album)}</small></div>
     </div>

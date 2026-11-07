@@ -19,6 +19,7 @@ import {
 } from './views/dashboard.js';
 import { setWeatherListener, searchPlaces, pickPlace, useMyLocation, clearLocation } from './weather.js';
 import { setMusicListener, startMusic, refreshMusic, musicControl, installCommand, watchForHelper } from './music.js';
+import { openNowPlaying, closeNowPlaying, updateNowPlaying } from './nowplaying-full.js';
 import { scheduleSync, syncNow, connect, writeSwConfig } from './sync.js';
 import {
   requestPermission, testLocal, startScheduler, enablePush, disablePush, testPush, refreshBadgeAndWidget,
@@ -83,6 +84,7 @@ function onRoute() {
     return;
   }
   closeSheet();
+  closeNowPlaying();
   route = r;
   lastViewHash = location.hash || `#/${homeRoute()}`;
   $('#view').scrollTop = 0;
@@ -219,6 +221,8 @@ async function handleAction(action, el, e) {
     case 'music-cmd':
       try { await musicControl(el.dataset.cmd); } catch (err) { toast(err.message); }
       break;
+    case 'music-full': openNowPlaying(); break;
+    case 'music-full-close': closeNowPlaying(); break;
     case 'music-enable':
       saveSettings({ music: true });
       if (await refreshMusic()) toast('Connected to the now-playing helper ✓');
@@ -462,7 +466,7 @@ subscribe((kind) => {
 setGcalListener(() => render());
 setWeatherListener(() => { if (route.name === 'dashboard' || route.name === 'settings') render(); });
 startDashTicker(() => route.name === 'dashboard' && document.visibilityState === 'visible', render);
-setMusicListener(() => { if (route.name === 'dashboard' || route.name === 'settings') render(); });
+setMusicListener(() => { updateNowPlaying(); if (route.name === 'dashboard' || route.name === 'settings') render(); });
 startMusic(() => route.name === 'dashboard' && document.visibilityState === 'visible');
 
 /* ---------- Dashboard full screen: hide the app chrome and an idle mouse cursor ---------- */
