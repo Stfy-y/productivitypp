@@ -924,6 +924,10 @@ a.wx-loc:hover { color: var(--accent); }
 }
 .npf-clock-time { font-size: clamp(22px, 2.2vw, 32px); font-weight: 750; letter-spacing: -.02em; }
 .npf-clock-date { font-size: clamp(12.5px, 1vw, 15px); font-weight: 600; color: rgb(255 255 255 / .65); }
+.npf-batt { display: flex; align-items: center; gap: 6px; margin-top: 4px; font-size: clamp(12px, .95vw, 14px); font-weight: 650; color: rgb(255 255 255 / .65); }
+.npf-batt[hidden] { display: none; }
+.npf-batt svg { flex: none; }
+.npf-batt.low { color: #ff8a80; }
 .idle .npf-close { opacity: 0; }
 
 .npf-body {
@@ -1037,6 +1041,7 @@ a.wx-loc:hover { color: var(--accent); }
   .npf-clock { top: calc(var(--safe-t) + 10px); left: 16px; flex-direction: row; align-items: baseline; gap: 8px; }
   .npf-clock-time { font-size: 17px; }
   .npf-clock-date { font-size: 12px; }
+  .npf-batt { margin-top: 0; font-size: 12px; }
   .npf-body { --cover: min(72dvh, 40vw); width: auto; grid-template-columns: var(--cover) minmax(0, 420px); justify-items: stretch; gap: 32px; }
   .npf-meta { text-align: left; align-items: flex-start; }
   .npf-meta > :is(.npf-progress, .npf-vol) { align-self: stretch; }

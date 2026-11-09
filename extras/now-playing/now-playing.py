@@ -288,11 +288,40 @@ def set_volume(v):
     set_system_volume(v)
 
 
+# ---------- Battery ----------
+def battery():
+    """{'percent', 'charging'} of the laptop's battery, or None on a desktop."""
+    root = '/sys/class/power_supply'
+    try:
+        names = sorted(os.listdir(root))
+    except OSError:
+        return None
+    total, charging, found = 0, False, 0
+    for n in names:
+        d = os.path.join(root, n)
+        try:
+            with open(os.path.join(d, 'type')) as f:
+                if f.read().strip() != 'Battery':
+                    continue
+            if os.path.exists(os.path.join(d, 'scope')):
+                with open(os.path.join(d, 'scope')) as f:
+                    if f.read().strip() == 'Device':  # a mouse or headset, not the laptop
+                        continue
+            with open(os.path.join(d, 'capacity')) as f:
+                total += int(f.read().strip())
+            with open(os.path.join(d, 'status')) as f:
+                charging = charging or f.read().strip() in ('Charging', 'Full')
+            found += 1
+        except (OSError, ValueError):
+            continue
+    return {'percent': round(total / found), 'charging': charging} if found else None
+
+
 # ---------- Now playing ----------
 def now_playing():
     name, p = current()
     if not name:
-        return {'status': 'none'}
+        return {'status': 'none', 'battery': battery()}
     m = p.get('Metadata') or {}
     art = m.get('mpris:artUrl') or ''
     if art.startswith('file://'):
@@ -314,6 +343,7 @@ def now_playing():
         'canPrevious': bool(p.get('CanGoPrevious')),
         'canPause': bool(p.get('CanPause') or p.get('CanPlay')),
         'volume': volume_of(name, p),
+        'battery': battery(),
     }
 
 
@@ -415,7 +445,9 @@ def relay_loop():
                 s = {'status': 'none'}
             if s.get('art', '').startswith('/'):
                 s['art'] = ''  # a picture stored on this computer: the phone can't load it
-            sig = json.dumps([s.get(k) for k in RELAY_FIELDS])
+            # the battery counts as a change only every 5% (or plugged in / out): KV writes are limited
+            b = s.get('battery')
+            sig = json.dumps([s.get(k) for k in RELAY_FIELDS] + [b and (b['percent'] // 5, b['charging'])])
             playing = s.get('status') == 'playing'
             jumped = False
             if pushed_pos and s.get('status') != 'none':
@@ -423,7 +455,7 @@ def relay_loop():
                 jumped = abs(p + (now - at if was_playing else 0) - s.get('position', 0)) > 3
             heartbeat = s.get('status') != 'none' and now - last_push > 600
             if (sig != last_sig or jumped or heartbeat) and now - last_push > 1:
-                worker('PUT', '/music', {k: s.get(k) for k in (*RELAY_FIELDS, 'position')})
+                worker('PUT', '/music', {k: s.get(k) for k in (*RELAY_FIELDS, 'position', 'battery')})
                 last_sig, last_push, pushed_pos = sig, now, (s.get('position', 0), now, playing)
                 with relay_lock:
                     relay_status.update(ok=True, error='', sent=int(now))

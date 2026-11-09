@@ -26,16 +26,49 @@ const syncError = (e) => (/^404/.test(e.message)
   ? 'Your sync server is out of date: paste the latest worker.js into it and deploy.'
   : 'Can\'t reach your sync server.');
 
+// Players (YouTube especially) often send "Artist - Song" as the title. Keep just the song, but only
+// when the other side really is the artist, so songs that merely contain a dash are left alone.
+const normName = (s) => s.normalize('NFKD').toLowerCase()
+  .replace(/[̀-ͯ]/g, '')
+  .replace(/\s*-\s*topic$|vevo$|\bofficial\b/g, '')
+  .replace(/[^\p{L}\p{N}]/gu, '');
+function isArtist(part, artist) {
+  const p = normName(part);
+  const a = normName(artist);
+  if (!p || !a) return false;
+  if (p === a) return true;
+  // "A & B - Song" with artist "A, B", or "A feat. B - Song" with artist "A"
+  const names = (s) => s.split(/\s*(?:,|&|\band\b|\bx\b|\bfeat\.?|\bft\.?|\bwith\b)\s*/i).map(normName).filter(Boolean);
+  const pn = names(part);
+  const an = names(artist);
+  return pn.some((n) => an.includes(n));
+}
+// "Song - Remastered 2011", "Song - Live at …", "Song - Radio Edit": the part after the dash isn't a song
+const VERSION = /^(?:\d{4}\s+)?(?:re-?master|live\b|remix|mix\b|edit\b|radio|version|acoustic|mono\b|stereo\b|demo\b|instrumental|bonus|single\b|extended|original|from\b|deluxe|clean\b|explicit|sped|slowed|unplugged|cover\b)/i;
+
+/** { title, artist } with the artist taken out of the title. */
+export function splitSong(title, artist = '') {
+  const m = title?.match(/^(.+?)\s+[-–—|]\s+(.+)$/);
+  if (!m) return { title: title || '', artist };
+  const [, left, right] = m.map((x) => x.trim());
+  if (artist && isArtist(left, artist)) return { title: right, artist: left }; // "Adele", not "AdeleVEVO"
+  if (artist && isArtist(right, artist)) return { title: left, artist }; // "Song - Artist"
+  // YouTube uploads: the title names the real artists, the artist field is just the channel/remixer
+  if (!VERSION.test(right)) return { title: right, artist: artist ? `${left}, ${artist}` : left };
+  return { title: title, artist };
+}
+const tidy = (s) => (s.title ? { ...s, ...splitSong(s.title, s.artist) } : s);
+
 async function readNext() {
   if (!viaSync()) {
     const r = await call('/now-playing');
     if (!r.ok) throw new Error(`Helper error ${r.status}`);
-    return { ...(await r.json()), at: Date.now() };
+    return tidy({ ...(await r.json()), at: Date.now() });
   }
   const m = await api('/music');
   // the computer went away without saying so (asleep, no internet): don't show an old song forever
   if (!m.status || m.age > RELAY_STALE_MS) return { status: 'none', at: Date.now() };
-  return { ...m, position: m.position || 0, at: Date.now() - (m.age || 0) };
+  return tidy({ ...m, position: m.position || 0, at: Date.now() - (m.age || 0) });
 }
 
 /** Fetch now; re-render only when something other than the position changed. */
@@ -44,7 +77,7 @@ export async function refreshMusic() {
   try {
     const next = await readNext();
     if (pendingUntil > Date.now() && state) Object.assign(next, pending); // a tap the computer hasn't reported back yet
-    const sig = (s) => (s ? [s.status, s.title, s.artist, s.album, s.art, s.length, s.player, s.volume].join('|') : '');
+    const sig = (s) => (s ? [s.status, s.title, s.artist, s.album, s.art, s.length, s.player, s.volume, s.battery?.percent, s.battery?.charging].join('|') : '');
     // a jump in position (seek, replay) also needs a redraw
     const jumped = state && Math.abs(livePosition(state) - livePosition(next)) > 3;
     const changed = sig(state) !== sig(next) || musicError || jumped;

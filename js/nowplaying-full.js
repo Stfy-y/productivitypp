@@ -115,7 +115,7 @@ function build() {
       <div class="npf-grain"></div>
     </div>
     <button class="npf-close icon-btn" data-np="close" aria-label="Close full screen player" title="Close (Esc)">${icon('close')}</button>
-    <div class="npf-clock" aria-hidden="true"><b class="npf-clock-time"></b><span class="npf-clock-date"></span></div>
+    <div class="npf-clock" aria-hidden="true"><b class="npf-clock-time"></b><span class="npf-clock-date"></span><span class="npf-batt" hidden></span></div>
     <div class="npf-body">
       <div class="npf-cover"></div>
       <div class="npf-meta">
@@ -247,6 +247,24 @@ function updateClock() {
   if (dt.textContent !== date) dt.textContent = date;
 }
 
+/** The laptop's battery (sent by the now-playing helper; none on a desktop or an older helper). */
+function showBattery(b) {
+  const el = root.querySelector('.npf-batt');
+  el.hidden = !b;
+  if (!b) return;
+  const pct = Math.max(0, Math.min(100, b.percent));
+  const key = `${pct}|${b.charging}`;
+  if (el.dataset.key === key) return;
+  el.dataset.key = key;
+  el.classList.toggle('low', !b.charging && pct <= 20);
+  el.innerHTML = `<svg viewBox="0 0 26 14" width="22" height="12" aria-hidden="true">
+      <rect x="1" y="1" width="21" height="12" rx="3" fill="none" stroke="currentColor" stroke-width="1.6"/>
+      <rect x="23.2" y="4.5" width="1.8" height="5" rx=".9" fill="currentColor"/>
+      <rect x="3" y="3" width="${(17 * pct / 100).toFixed(1)}" height="8" rx="1.5" fill="currentColor"/>
+      ${b.charging ? '<path d="M12.5 2 8.5 7.6h3.4L10.6 12l4-5.6h-3.4z" fill="#000" fill-opacity=".55"/>' : ''}
+    </svg>${pct}%${b.charging ? ' · charging' : ''}`;
+}
+
 function updateProgress() {
   if (!root) return;
   updateClock();
@@ -270,6 +288,7 @@ export function updateNowPlaying() {
   root.classList.toggle('playing', !!playing);
   root.classList.toggle('empty', !live);
   setText('.npf-label', live ? `${playing ? 'Now playing' : 'Paused'}${s.player ? ` · ${s.player}` : ''}` : '');
+  showBattery(s?.battery);
   setText('.npf-title', live ? s.title : (s ? 'Nothing playing' : musicError || 'Connecting…'));
   setText('.npf-artist', live ? s.artist : (s ? `Start something in your music app${viaSync() ? ' on your computer' : ''}.` : ''));
   setText('.npf-album', live && s.album && ![s.artist, s.title].includes(s.album) ? s.album : ''); // singles: album = title
