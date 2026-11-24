@@ -20,6 +20,8 @@
  *   PUT  /music              -> the helper sends the current song (only when something changes)
  *   POST /music/cmd          -> the phone's taps { cmd: play-pause|next|previous|volume|watch, v }
  *   GET  /music/inbox        -> the helper picks those up
+ *   GET  /nfc/<habitId>/<sig> -> NFC tag tap: adds a check-in for today, returns a small HTML page.
+ *                              No token: <sig> is HMAC(TOKEN, "nfc:<id>"), so a tag can only log its own habit.
  *   /gcal/*                  -> Google Calendar (status, auth-url, callback, calendars, prefs, events, task, disconnect)
  *
  * Google Calendar (optional) secrets: GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET. See README.md.
@@ -448,6 +450,40 @@ async function musicRoute(path, req, env) {
   return json({ error: 'not found' }, 404);
 }
 
+/* ---------- NFC tags ---------- */
+// Same formula as serverLink() in js/nfc.js
+async function nfcSig(env, id) {
+  const key = await crypto.subtle.importKey('raw', enc(env.TOKEN), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  return b64url(await crypto.subtle.sign('HMAC', key, enc(`nfc:${id}`))).slice(0, 22);
+}
+function nfcPage(title, line, color = '#4f6bed', ok = true) {
+  const e = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+  return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark"><meta name="robots" content="noindex"><title>${e(title)}</title><style>
+body{margin:0;min-height:100vh;display:grid;place-items:center;font:16px/1.4 system-ui,sans-serif;background:light-dark(#f6f7fb,#111318);color:light-dark(#1b1d24,#e8e9ee)}
+main{text-align:center;padding:24px}.c{width:96px;height:96px;margin:0 auto 18px;border-radius:50%;display:grid;place-items:center;font-size:48px;color:#fff;background:${e(color)}}
+h1{font-size:22px;margin:0 0 6px}p{margin:0;opacity:.7}</style></head>
+<body><main><div class="c">${ok ? '✓' : '!'}</div><h1>${e(title)}</h1><p>${e(line)}</p></main></body></html>`,
+  { status: ok ? 200 : 404, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
+}
+async function nfcRoute(path, env) {
+  const [, , id = '', sig = ''] = path.split('/');
+  if (!env.TOKEN) return json({ error: 'TOKEN secret not set' }, 500);
+  if (!id || !timingSafeEqual(sig, await nfcSig(env, id))) return nfcPage('Invalid tag', 'This tag link isn\'t valid for this server.', '#d9534f', false);
+  const state = await getState(env);
+  const h = (state.habits || []).find((x) => x.id === id);
+  if (!h || h.deleted) return nfcPage('Habit not found', 'It may have been deleted. Write a new link to this tag.', '#d9534f', false);
+  const date = localMinuteKey(new Date(), state.tz || 'UTC').slice(0, 10);
+  const g = h.goal || 1, c = h.log?.[date]?.c || 0;
+  const name = `${h.icon || ''} ${h.name}`.trim();
+  if (c >= g) return nfcPage(name, `Already done today${g > 1 ? ` (${c}/${g})` : ''}.`, h.color);
+  const now = Date.now();
+  h.log = { ...h.log, [date]: { c: c + 1, t: now } };
+  state.updatedAt = now;
+  await env.KV.put('state', JSON.stringify(state));
+  return nfcPage(name, g > 1 ? `Logged ${c + 1}/${g} today.` : 'Logged for today. Nice!', h.color);
+}
+
 /* ---------- Router ---------- */
 export default {
   async fetch(req, env) {
@@ -459,6 +495,7 @@ export default {
     if (path === '/') return json({ ok: true, app: 'productivity-sync' });
     if (path === '/vapid') return json({ publicKey: (await getVapid(env)).publicKey });
     if (path === '/gcal/callback') return gCallback(url, env);
+    if (path.startsWith('/nfc/') && req.method === 'GET') return nfcRoute(path, env);
 
     if (!env.TOKEN) return json({ error: 'TOKEN secret not set' }, 500);
     const given = (req.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '') || url.searchParams.get('token') || '';

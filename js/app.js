@@ -2,7 +2,7 @@ import { $, $$, toast } from './util.js';
 import { icon } from './icons.js';
 import { today, addDays } from './dates.js';
 import {
-  db, settings, saveSettings, subscribe, updateTask, updateEvent, getEvent, detachOccurrence, quadFlags, getHabit, updateHabit, cycleHabit, isExam,
+  db, settings, saveSettings, subscribe, updateTask, updateEvent, getEvent, detachOccurrence, quadFlags, getHabit, updateHabit, cycleHabit, logHabit, isExam,
   clearCompleted, replaceAll,
 } from './store.js';
 import { openQuickAdd, openTaskEditor, openHabitEditor, openEventSheet, openEventEditor, openExamEditor, doToggle, confirmDialog, closeSheet } from './ui.js';
@@ -13,6 +13,7 @@ import { renderList, LISTS } from './views/tasks.js';
 import { renderCalendar, calAction, calSelected, enableCalSwipe } from './views/calendar.js';
 import { renderMatrix, toggleMatrixDone } from './views/matrix.js';
 import { renderHabits, renderHabitDetail, habitAction } from './views/habits.js';
+import { openNfcSheet } from './nfc.js';
 import { renderSettings, install } from './views/settings.js';
 import {
   renderDashboard, dashActions, openWhatsAppSheet, MUSIC_HINT_KEY, applyBurnIn, fitDashboard, startDashTicker, syncWakeLock, awakeWanted, setAwakeWanted, toggleFullscreen,
@@ -77,9 +78,16 @@ function onRoute() {
   }
   if (r.name === 'add') { history.replaceState(null, '', '#/today'); route = parseRoute(); render(); openQuickAdd({ date: today(), kind: 'task' }); return; }
   if (r.name === 'add-event') { history.replaceState(null, '', '#/calendar'); route = parseRoute(); render(); openQuickAdd({ date: today(), kind: 'event' }); return; }
-  if (r.name === 'check') {
+  // #/check/<id>[/<date>] (notification button) and #/nfc/<id> (NFC tag): add a check-in, never undo one
+  if (r.name === 'check' || r.name === 'nfc') {
     const [id, date] = (r.arg || '').split('/');
-    if (getHabit(id)) cycleHabit(id, date || today());
+    const res = logHabit(id, date || today());
+    if (res) {
+      const name = `${res.h.icon || ''} ${res.h.name}`.trim();
+      const prog = res.g > 1 ? ` (${res.c}/${res.g})` : '';
+      toast(res.already ? `${name} is already done today${prog}` : `✓ ${name} logged${prog}`);
+      navigator.vibrate?.(res.already ? [8, 60, 8] : 30);
+    } else if (r.name === 'nfc') toast('That habit no longer exists');
     history.replaceState(null, '', '#/habits');
     route = parseRoute();
     render();
@@ -198,6 +206,7 @@ async function handleAction(action, el, e) {
     case 'habit-open': location.hash = `#/habit/${id}`; break;
     case 'habit-new': openHabitEditor(); break;
     case 'habit-edit': openHabitEditor(id); break;
+    case 'habit-nfc': openNfcSheet(id); break;
     case 'habit-archive': updateHabit(id, { archived: !getHabit(id).archived }); break;
     case 'habit-delete':
       if (await confirmDialog(`Delete “${getHabit(id).name}” and its history?`)) { updateHabit(id, { deleted: true }); location.hash = '#/habits'; }

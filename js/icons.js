@@ -15,6 +15,7 @@ export const ICONS = {
   left: p('<path d="m15 18-6-6 6-6"/>'),
   right: p('<path d="m9 18 6-6-6-6"/>'),
   close: p('<path d="M18 6 6 18M6 6l12 12"/>'),
+  nfc: p('<rect x="5" y="2" width="14" height="20" rx="3"/><path d="M9.5 9.5a3.5 3.5 0 0 1 0 5M12.5 7.5a6.5 6.5 0 0 1 0 9"/>'),
   bell: p('<path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/>'),
   repeat: p('<path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14M7 22l-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/>'),
   trash: p('<path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/>'),

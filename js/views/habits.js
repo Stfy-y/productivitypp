@@ -112,6 +112,7 @@ export function renderHabitDetail(id) {
     </div>
     <div class="row-actions">
       <button class="btn" data-action="habit-edit" data-id="${h.id}">${icon('edit')} Edit</button>
+      <button class="btn" data-action="habit-nfc" data-id="${h.id}">${icon('nfc')} NFC tag</button>
       <button class="btn" data-action="habit-archive" data-id="${h.id}">${icon('archive')} ${h.archived ? 'Unarchive' : 'Archive'}</button>
       <button class="btn danger ghost" data-action="habit-delete" data-id="${h.id}">${icon('trash')} Delete</button>
     </div>

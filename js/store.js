@@ -218,6 +218,16 @@ export function cycleHabit(id, date) {
   setHabitCount(id, date, c >= (h.goal || 1) ? 0 : c + 1);
 }
 
+/** Add one check-in (never removes one, never goes past the daily goal). Used by NFC tags and notifications. */
+export function logHabit(id, date) {
+  const h = getHabit(id);
+  if (!h || h.deleted) return null;
+  const g = h.goal || 1, c = habitCount(h, date);
+  if (c >= g) return { h, c, g, already: true };
+  setHabitCount(id, date, c + 1);
+  return { h, c: c + 1, g, already: false };
+}
+
 export function habitStats(h) {
   const done = (d) => habitCount(h, d) >= (h.goal || 1);
   const t = today();

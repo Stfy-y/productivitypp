@@ -12,7 +12,7 @@ Plain HTML/CSS/JS with no build step and no dependencies. Hosted on GitHub Pages
   - `!1` Urgent & Important · `!2` Important · `!3` Urgent · `!4` Neither
 - **Calendar:** month view (habit-progress rings and an agenda for the selected day) and week view. Drag tasks onto days.
 - **Eisenhower Matrix:** four quadrants. Drag and drop with a mouse or by long-pressing on touch.
-- **Habit tracker:** per-weekday schedules, N-times-per-day goals, streaks, monthly heatmap, reminders.
+- **Habit tracker:** per-weekday schedules, N-times-per-day goals, streaks, monthly heatmap, reminders. **NFC tags:** open a habit → *NFC tag* to get a link (or write it straight to a tag in Chrome on Android); tapping your phone on the tag checks the habit in. With sync set up, the tag works without opening the app, on iPhone too.
 - **Installable app:** full screen, home-screen icon, app shortcuts, app badge with today's count, light and dark themes.
 - **Notifications:** reminders while the app is open. With the optional free worker, reminders also arrive when it's closed.
 - **Sync** between devices via your own free Cloudflare Worker (optional).

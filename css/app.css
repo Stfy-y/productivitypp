@@ -1255,3 +1255,11 @@ body.dash-fit .dash-col > .card[data-size] { flex: 0 1 auto; min-height: 0; }
 @media (max-width: 759px) { .dp-resize { display: none; } }
 body.is-resizing, body.is-resizing * { user-select: none; }
 .dash-panel > .card[data-size] { -webkit-mask-image: none; mask-image: none; overflow: hidden; }
+
+/* ---------- NFC tag sheet ---------- */
+.nfc-sheet { display: grid; gap: 12px; }
+.nfc-sheet > .hint { margin: 0; }
+.nfc-opt { display: grid; gap: 6px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; }
+.nfc-rec { font-size: 11px; font-weight: 600; color: var(--accent, #4f6bed); margin-left: 6px; }
+.nfc-url { font-size: 12px; word-break: break-all; padding: 6px 8px; border-radius: 8px; background: color-mix(in srgb, var(--line) 50%, transparent); user-select: all; }
+.nfc-btns { display: flex; gap: 8px; flex-wrap: wrap; }
