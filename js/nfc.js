@@ -1,4 +1,4 @@
-import { esc, toast } from './util.js';
+import { esc, toast, isIOS } from './util.js';
 import { icon } from './icons.js';
 import { getHabit, settings } from './store.js';
 import { openSheet, closeSheet } from './ui.js';
@@ -61,6 +61,7 @@ export async function openNfcSheet(id) {
       <p class="hint">Put one of these links on an NFC tag. Tapping your phone on the tag adds a check-in for today. A tap never un-checks the habit.</p>
       ${server ? opt('Via sync server', 'Logs the habit without opening the app, on Android and iPhone. Shows a small confirmation page.', server, true) : ''}
       ${opt('Open the app', server ? 'Opens Productivity++ and logs it there. On iPhone this opens Safari, which keeps separate data from the home-screen app.' : 'Opens Productivity++ and logs it there. Set up sync in Settings to get a link that works without the app, including on iPhone.', app, !server)}
+      ${isIOS() && server ? `<p class="hint"><b>iPhone, no tap on a notification:</b> in Shortcuts → Automation → NFC, scan the tag, choose <i>Run Immediately</i>, and add <i>Get Contents of URL</i> with <code class="nfc-url">${esc(server)}?format=text</code> followed by <i>Show Notification</i> with the result.</p>` : ''}
       ${canWrite() ? '' : '<p class="hint">To write the tag from here, use Chrome on Android. Otherwise copy a link and write it as a URL record with an app like NFC Tools.</p>'}
     </div>`, {
     onMount(el) {
