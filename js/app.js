@@ -586,6 +586,11 @@ setInterval(() => { if (today() !== day) { day = today(); render(); refreshBadge
 
 window.addEventListener('hashchange', onRoute);
 applyTheme();
+// NFC tag links are ?nfc=<id> (no '#', which some tag writers reject): turn them into the #/nfc/<id> route
+{
+  const nfc = new URLSearchParams(location.search).get('nfc');
+  if (nfc) history.replaceState(null, '', `${location.pathname}#/nfc/${encodeURIComponent(nfc)}`);
+}
 onRoute();
 startScheduler();
 refreshBadgeAndWidget();

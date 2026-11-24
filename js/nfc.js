@@ -3,8 +3,8 @@ import { icon } from './icons.js';
 import { getHabit, settings } from './store.js';
 import { openSheet, closeSheet } from './ui.js';
 
-/** Link that opens the app and logs the habit (#/nfc/<id>). */
-export const appLink = (id) => `${location.origin}${location.pathname}#/nfc/${id}`;
+/** Link that opens the app and logs the habit. A query, not #/nfc/<id>: some tag writers (NXP TagWriter) reject '#'. */
+export const appLink = (id) => `${location.origin}${location.pathname}?nfc=${encodeURIComponent(id)}`;
 
 /**
  * Link to the sync worker that logs the habit server-side, with no app needed (works on iPhone too).
