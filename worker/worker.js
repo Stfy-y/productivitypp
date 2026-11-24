@@ -477,11 +477,13 @@ async function nfcRoute(path, env, url) {
   const h = (state.habits || []).find((x) => x.id === id);
   if (!h || h.deleted) return nfcPage('Habit not found', 'It may have been deleted. Write a new link to this tag.', '#d9534f', false, text);
   const date = localMinuteKey(new Date(), state.tz || 'UTC').slice(0, 10);
-  const g = h.goal || 1, c = h.log?.[date]?.c || 0;
+  const g = h.goal || 1, cur = h.log?.[date], c = cur?.c || 0;
   const name = `${h.icon || ''} ${h.name}`.trim();
-  if (c >= g) return nfcPage(name, `Already done today${g > 1 ? ` (${c}/${g})` : ''}.`, h.color, true, text);
   const now = Date.now();
-  h.log = { ...h.log, [date]: { c: c + 1, t: now } };
+  // One physical tap can reach us twice (iOS automations sometimes fire twice): ignore repeats within 10 s
+  if (cur?.n && now - cur.n < 10000) return nfcPage(name, `Already logged a moment ago (${c}/${g}).`, h.color, true, text);
+  if (c >= g) return nfcPage(name, `Already done today${g > 1 ? ` (${c}/${g})` : ''}.`, h.color, true, text);
+  h.log = { ...h.log, [date]: { c: c + 1, t: now, n: now } }; // n: time of the last NFC check-in
   state.updatedAt = now;
   await env.KV.put('state', JSON.stringify(state));
   return nfcPage(name, g > 1 ? `Logged ${c + 1}/${g} today.` : 'Logged for today. Nice!', h.color, true, text);
