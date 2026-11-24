@@ -9,3 +9,44 @@
 .ppp-overdue { color: #e5484d; font-weight: bold; }
 .ppp-now { font-weight: bold; }
 .ppp-error { color: #e5484d; }
+
+/* Island under the top bar */
+.ppp-island {
+  background-color: #000;
+  color: #fff;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+}
+.ppp-island.expanded { border-radius: 28px; }
+.ppp-island-compact { height: 34px; padding: 0 14px 0 8px; spacing: 8px; }
+.ppp-island-ctitle { max-width: 220px; font-weight: bold; font-size: 0.92em; }
+.ppp-island-cright { font-weight: bold; font-size: 0.92em; font-feature-settings: "tnum"; }
+.ppp-island-dot { width: 10px; height: 10px; border-radius: 5px; margin: 0 2px 0 6px; }
+.ppp-island-art-sm { width: 22px; height: 22px; border-radius: 6px; background-size: cover; background-color: #333; }
+.ppp-island-art { width: 52px; height: 52px; border-radius: 10px; background-size: cover; background-color: #2a2a2a; }
+.ppp-island-bars { height: 14px; spacing: 2px; }
+.ppp-island-bar { width: 3px; height: 14px; border-radius: 2px; background-color: #5be37d; }
+.ppp-island-expanded { width: 340px; padding: 16px 18px; spacing: 12px; }
+.ppp-island-section { spacing: 6px; }
+.ppp-island-mhead { spacing: 12px; }
+.ppp-island-ehead { spacing: 8px; }
+.ppp-island-link { padding: 0; border-radius: 12px; color: #fff; }
+.ppp-island-title { font-weight: bold; font-size: 1.05em; }
+.ppp-island-sub { color: rgba(255, 255, 255, 0.6); font-size: 0.9em; }
+.ppp-island-then { margin-top: 2px; }
+.ppp-island-kind { color: rgba(255, 255, 255, 0.55); font-size: 0.78em; font-weight: bold; letter-spacing: 1px; }
+.ppp-island-time { color: rgba(255, 255, 255, 0.55); font-size: 0.78em; font-feature-settings: "tnum"; }
+.ppp-island-track { width: 304px; height: 4px; border-radius: 2px; background-color: rgba(255, 255, 255, 0.2); margin-top: 4px; }
+.ppp-island-fill { height: 4px; border-radius: 2px; background-color: #fff; }
+.ppp-island-controls { spacing: 22px; }
+.ppp-island-btn { padding: 6px; border-radius: 99px; color: #fff; }
+.ppp-island-btn:hover { background-color: rgba(255, 255, 255, 0.12); }
+.ppp-island-sep { height: 1px; background-color: rgba(255, 255, 255, 0.1); }
+/* Over the cover colours (music playing) */
+.ppp-island.colored .ppp-island-bar { background-color: rgba(255, 255, 255, 0.9); }
+.ppp-island.colored StLabel { text-shadow: 0 1px 3px rgba(0, 0, 0, 0.45); }
+.ppp-island.colored .ppp-island-track { background-color: rgba(255, 255, 255, 0.25); }
+.ppp-island.colored .ppp-island-sep { background-color: rgba(255, 255, 255, 0.18); }
+/* No border over the cover colours: the painted background fills the whole pill */
+.ppp-island.colored { border-width: 0; }

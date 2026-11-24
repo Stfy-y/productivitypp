@@ -206,7 +206,7 @@ function widgetData(state) {
   const habits = (state.habits || [])
     .filter((h) => !h.deleted && !h.archived && (!h.days?.length || h.days.includes(wd)))
     .map((h) => ({ name: h.name, icon: h.icon, count: h.log?.[today]?.c || 0, goal: h.goal || 1, done: (h.log?.[today]?.c || 0) >= (h.goal || 1) }));
-  // Your own events for today (Google events are added in widgetWithGoogle)
+  // Your own events for today (only Productivity++ events: widgets don't show Google Calendar)
   const toMin = (t) => { const m = /^(\d{1,2}):(\d{2})/.exec(String(t || '')); return m ? +m[1] * 60 + +m[2] : 0; };
   const hhmm = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
   const events = (state.events || [])
@@ -219,29 +219,6 @@ function widgetData(state) {
 }
 
 const sortEvents = (list) => list.sort((a, b) => (b.allDay - a.allDay) || (a.time || '').localeCompare(b.time || ''));
-
-/** Adds today's Google Calendar events when Google is connected (never fails the widget). */
-async function widgetWithGoogle(env, state) {
-  const d = widgetData(state);
-  try {
-    if (!gConfigured(env) || !(await env.KV.get('gcal', 'json'))?.refresh) return d;
-    const local = (iso) => localMinuteKey(new Date(iso), d.tz);
-    for (const e of await gEvents(env, d.date, d.date)) {
-      if (e.allDay) {
-        if (e.start <= d.date && d.date < e.end) d.events.push({ title: e.title, allDay: true, time: null, end: null, color: e.color, location: e.location || '' });
-        continue;
-      }
-      const s = local(e.start), en = local(e.end);
-      if (s.slice(0, 10) > d.date || en.slice(0, 10) < d.date) continue;
-      d.events.push({
-        title: e.title, allDay: false, color: e.color, location: e.location || '',
-        time: s.slice(0, 10) === d.date ? s.slice(11) : '00:00', end: en.slice(0, 10) === d.date ? en.slice(11) : '23:59',
-      });
-    }
-    sortEvents(d.events);
-  } catch { /* Google is optional */ }
-  return d;
-}
 
 function widgetHtml(d) {
   const e = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -528,7 +505,7 @@ export default {
       return json(await pushAll(env));
     }
     if (path === '/widget') {
-      const d = await widgetWithGoogle(env, await getState(env));
+      const d = widgetData(await getState(env)); // app events only: widgets never show Google Calendar
       if (url.searchParams.get('format') === 'html') return new Response(widgetHtml(d), { headers: { 'Content-Type': 'text/html; charset=utf-8', ...CORS } });
       return json(d);
     }

@@ -13,6 +13,8 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
+import { Island } from './island.js';
+
 const CONFIG_PATH = GLib.build_filenamev([GLib.get_user_config_dir(), 'productivitypp', 'widget.json']);
 const REFRESH_SECONDS = 300;
 const SETUP_URL = 'https://github.com/Stfy-y/productivitypp/tree/master/linux-widget';
@@ -102,6 +104,7 @@ class ProductivityIndicator extends PanelMenu.Button {
         this._error = e.message || String(e);
       }
       this._render();
+      this._ext.island?.setSchedule(this._schedule());
     });
   }
 
@@ -248,9 +251,13 @@ export default class ProductivityExtension extends Extension {
   enable() {
     this._indicator = new Indicator(this);
     Main.panel.addToStatusArea(this.uuid, this._indicator, 1, 'right');
+    // The island under the top bar (now/next event + now playing). Set "island": false in widget.json to turn it off.
+    if (readConfig()?.island !== false) this.island = new Island({ openApp: (hash) => this._indicator?._open(hash) });
   }
 
   disable() {
+    this.island?.destroy();
+    this.island = null;
     this._indicator?.destroy();
     this._indicator = null;
   }
