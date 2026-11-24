@@ -571,7 +571,10 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') { syncNow(); refreshGcalStatus().then(render); render(); }
 });
 window.addEventListener('online', () => syncNow());
-setInterval(() => { if (document.visibilityState === 'visible') syncNow(); }, 5 * 60 * 1000);
+// Pull often while open: NFC tags / iPhone Shortcuts log habits on the server, and a stale count here
+// would hide those check-ins (and a tap on the old count would overwrite them). One small KV read per poll.
+setInterval(() => { if (document.visibilityState === 'visible') syncNow(); }, 20 * 1000);
+window.addEventListener('focus', () => syncNow());
 
 // Re-render after midnight so "Today" stays correct
 setInterval(updateNowLine, 60 * 1000);
