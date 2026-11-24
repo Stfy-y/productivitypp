@@ -480,13 +480,15 @@ async function nfcRoute(path, env, url) {
   const g = h.goal || 1, cur = h.log?.[date], c = cur?.c || 0;
   const name = `${h.icon || ''} ${h.name}`.trim();
   const now = Date.now();
-  // One physical tap can reach us twice (iOS automations sometimes fire twice): ignore repeats within 10 s
-  if (cur?.n && now - cur.n < 10000) return nfcPage(name, `Already logged a moment ago (${c}/${g}).`, h.color, true, text);
+  const logged = (n) => (g > 1 ? `Logged ${n}/${g} today.` : 'Logged for today. Nice!');
+  // One tap can reach us twice (iOS automations can fire twice, browsers preload links typed in the
+  // address bar): a repeat within 10 s doesn't count again and gets the same answer as the first hit.
+  if (cur?.n && now - cur.n < 10000) return nfcPage(name, logged(c), h.color, true, text);
   if (c >= g) return nfcPage(name, `Already done today${g > 1 ? ` (${c}/${g})` : ''}.`, h.color, true, text);
   h.log = { ...h.log, [date]: { c: c + 1, t: now, n: now } }; // n: time of the last NFC check-in
   state.updatedAt = now;
   await env.KV.put('state', JSON.stringify(state));
-  return nfcPage(name, g > 1 ? `Logged ${c + 1}/${g} today.` : 'Logged for today. Nice!', h.color, true, text);
+  return nfcPage(name, logged(c + 1), h.color, true, text);
 }
 
 /* ---------- Router ---------- */
